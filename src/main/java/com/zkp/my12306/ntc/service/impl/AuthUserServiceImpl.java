@@ -27,6 +27,21 @@ public class AuthUserServiceImpl implements AuthUserService {
     }
 
     @Override
+    public NtcUserEntity createUser(String account, String userName, String passwordHash) {
+        NtcUserEntity user = new NtcUserEntity();
+        user.setAccount(account);
+        user.setUserName(userName);
+        user.setPasswordHash(passwordHash);
+        user.setStatus(1);
+        user.setIsDeleted(0);
+        user.setFailedLoginCount(0);
+        user.setCreatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
+        ntcUserMapper.insert(user);
+        return user;
+    }
+
+    @Override
     public int updateLastLoginAtByAccount(String account) {
         LambdaUpdateWrapper<NtcUserEntity> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(NtcUserEntity::getAccount, account)
