@@ -15,6 +15,10 @@ function clearSessionId() {
   localStorage.removeItem(SESSION_ID_KEY);
 }
 
+export function hasSessionId() {
+  return !!getSessionId();
+}
+
 async function request(url, method, body) {
   const headers = body ? { "Content-Type": "application/json" } : {};
   const sessionId = getSessionId();
@@ -32,6 +36,9 @@ async function request(url, method, body) {
   const payload = contentType.includes("application/json")
     ? await response.json()
     : await response.text();
+  if (response.status === 401 && !url.includes("/api/auth/login")) {
+    clearSessionId();
+  }
   return { response, payload };
 }
 

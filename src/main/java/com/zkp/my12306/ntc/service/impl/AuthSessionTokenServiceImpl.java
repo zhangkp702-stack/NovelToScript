@@ -72,6 +72,24 @@ public class AuthSessionTokenServiceImpl implements AuthSessionTokenService {
     }
 
     @Override
+    public void refreshTtl(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        if (useRedis) {
+            String username = redisTemplate.opsForValue().get(redisKey(sessionId));
+            if (username != null && !username.isBlank()) {
+                redisTemplate.opsForValue().set(redisKey(sessionId), username, Duration.ofSeconds(ttlSeconds));
+            }
+            return;
+        }
+        LocalSession localSession = localSessionStore.get(sessionId);
+        if (localSession != null) {
+            localSessionStore.put(sessionId, new LocalSession(localSession.username(), Instant.now().plusSeconds(ttlSeconds)));
+        }
+    }
+
+    @Override
     public void revoke(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return;

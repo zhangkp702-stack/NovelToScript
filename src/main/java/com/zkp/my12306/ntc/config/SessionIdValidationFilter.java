@@ -46,6 +46,7 @@ public class SessionIdValidationFilter extends OncePerRequestFilter {
             writeUnauthorized(response, "sessionId无效或已过期");
             return;
         }
+        authSessionTokenService.refreshTtl(sessionId);
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.isAuthenticated() && authentication.getName() != null
