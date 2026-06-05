@@ -40,3 +40,6 @@ build/
 .cursor-temp/
 **/*.plan.md
 **/agent-transcripts/
+
+# Frontend dependencies
+**/node_modules/
