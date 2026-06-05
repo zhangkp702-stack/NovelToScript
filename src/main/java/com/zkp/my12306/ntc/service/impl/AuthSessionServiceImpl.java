@@ -7,6 +7,7 @@ import com.zkp.my12306.ntc.dto.RegisterResponseDto;
 import com.zkp.my12306.ntc.dto.UserInfoResponseDto;
 import com.zkp.my12306.ntc.entity.NtcUserEntity;
 import com.zkp.my12306.ntc.service.AuthSessionService;
+import com.zkp.my12306.ntc.service.AuthSessionTokenService;
 import com.zkp.my12306.ntc.service.AuthUserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -29,14 +30,18 @@ import java.util.List;
 
 @Service
 public class AuthSessionServiceImpl implements AuthSessionService {
+    private static final String SESSION_ID_HEADER = "X-Session-Id";
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
     private final AuthUserService authUserService;
+    private final AuthSessionTokenService authSessionTokenService;
     private final PasswordEncoder passwordEncoder;
 
     public AuthSessionServiceImpl(
             AuthUserService authUserService,
+            AuthSessionTokenService authSessionTokenService,
             PasswordEncoder passwordEncoder) {
         this.authUserService = authUserService;
+        this.authSessionTokenService = authSessionTokenService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -69,7 +74,8 @@ public class AuthSessionServiceImpl implements AuthSessionService {
         persistSecurityContextToSession(context);
 
         authUserService.updateLastLoginAtByAccount(authentication.getName());
-        return new LoginResponseDto(authentication.getName(), resolveCurrentSessionId());
+        String sessionId = authSessionTokenService.createSessionToken(authentication.getName());
+        return new LoginResponseDto(authentication.getName(), sessionId);
     }
 
     @Override
@@ -104,6 +110,8 @@ public class AuthSessionServiceImpl implements AuthSessionService {
             SecurityContextHolder.clearContext();
             return;
         }
+        String sessionId = attributes.getRequest().getHeader(SESSION_ID_HEADER);
+        authSessionTokenService.revoke(sessionId);
         logoutHandler.logout(attributes.getRequest(), attributes.getResponse(), authentication);
     }
 
@@ -115,15 +123,6 @@ public class AuthSessionServiceImpl implements AuthSessionService {
         HttpServletRequest request = attributes.getRequest();
         HttpSession session = request.getSession(true);
         session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
-    }
-
-    private String resolveCurrentSessionId() {
-        ServletRequestAttributes attributes = currentServletAttributes();
-        if (attributes == null) {
-            return "";
-        }
-        HttpSession session = attributes.getRequest().getSession(false);
-        return session == null ? "" : session.getId();
     }
 
     private boolean isUserActive(NtcUserEntity user) {
