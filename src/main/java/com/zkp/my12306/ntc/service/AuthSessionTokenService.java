@@ -8,5 +8,7 @@ public interface AuthSessionTokenService {
 
     String getUsername(String sessionId);
 
+    void refreshTtl(String sessionId);
+
     void revoke(String sessionId);
 }
