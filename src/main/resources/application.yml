@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: test
+  datasource:
+    url: jdbc:mysql://192.168.126.100:3306/NTS_user?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
