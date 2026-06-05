@@ -2,12 +2,15 @@ package com.zkp.my12306.ntc.service.impl;
 
 import com.zkp.my12306.ntc.dto.LoginRequestDto;
 import com.zkp.my12306.ntc.dto.LoginResponseDto;
+import com.zkp.my12306.ntc.dto.RegisterRequestDto;
+import com.zkp.my12306.ntc.dto.RegisterResponseDto;
 import com.zkp.my12306.ntc.dto.UserInfoResponseDto;
 import com.zkp.my12306.ntc.entity.NtcUserEntity;
 import com.zkp.my12306.ntc.service.AuthSessionService;
 import com.zkp.my12306.ntc.service.AuthUserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -26,7 +29,6 @@ import java.util.List;
 
 @Service
 public class AuthSessionServiceImpl implements AuthSessionService {
-
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
     private final AuthUserService authUserService;
     private final PasswordEncoder passwordEncoder;
@@ -42,18 +44,18 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     public LoginResponseDto login(LoginRequestDto request) {
         if (request.username() == null || request.username().isBlank()
                 || request.password() == null || request.password().isBlank()) {
-            throw new IllegalArgumentException("username and password are required");
+            throw new IllegalArgumentException("账号和密码不能为空");
         }
         String username = request.username().trim();
         String password = request.password();
 
         NtcUserEntity user = authUserService.findByAccount(username)
-                .orElseThrow(() -> new BadCredentialsException("invalid credentials"));
+                .orElseThrow(() -> new BadCredentialsException("账号或密码错误"));
         if (!isUserActive(user)) {
-            throw new BadCredentialsException("invalid credentials");
+            throw new BadCredentialsException("账号或密码错误");
         }
         if (!isPasswordValid(password, user.getPasswordHash())) {
-            throw new BadCredentialsException("invalid credentials");
+            throw new BadCredentialsException("账号或密码错误");
         }
 
         Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
@@ -68,6 +70,26 @@ public class AuthSessionServiceImpl implements AuthSessionService {
 
         authUserService.updateLastLoginAtByAccount(authentication.getName());
         return new LoginResponseDto(authentication.getName(), resolveCurrentSessionId());
+    }
+
+    @Override
+    public RegisterResponseDto register(RegisterRequestDto request) {
+        if (request.account() == null || request.account().isBlank()
+                || request.password() == null || request.password().isBlank()) {
+            throw new IllegalArgumentException("账号和密码不能为空");
+        }
+        String account = request.account().trim();
+        if (authUserService.findByAccount(account).isPresent()) {
+            throw new IllegalStateException("账户已经存在，请直接登陆");
+        }
+
+        try {
+            String passwordHash = passwordEncoder.encode(request.password());
+            authUserService.createUser(account, account, passwordHash);
+            return new RegisterResponseDto("账户创建成功，请登录");
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalStateException("账户已经存在，请直接登陆");
+        }
     }
 
     @Override

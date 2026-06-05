@@ -8,5 +8,7 @@ public interface AuthUserService {
 
     Optional<NtcUserEntity> findByAccount(String account);
 
+    NtcUserEntity createUser(String account, String userName, String passwordHash);
+
     int updateLastLoginAtByAccount(String account);
 }

@@ -15,6 +15,7 @@ import org.springframework.web.context.WebApplicationContext;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -44,7 +45,7 @@ class SecurityAccessIntegrationTest {
     void probe_withAuthentication_returnsOk() throws Exception {
         mockMvc.perform(MockMvcRequestBuilders.get("/api/auth/probe"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("authenticated"));
+                .andExpect(content().string("已认证"));
     }
 
     @Test
@@ -70,5 +71,41 @@ class SecurityAccessIntegrationTest {
                                 .session(session))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"username\":\"admin\",\"authenticated\":true}"));
+    }
+
+    @Test
+    void register_thenLogin_withNewAccount_returnsOk() throws Exception {
+        mockMvc.perform(
+                        MockMvcRequestBuilders.post("/api/auth/register")
+                                .contentType("application/json")
+                                .content("{\"account\":\"user_1001\",\"password\":\"123456\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.message").value("账户创建成功，请登录"));
+
+        mockMvc.perform(
+                        MockMvcRequestBuilders.post("/api/auth/login")
+                                .contentType("application/json")
+                                .content("{\"username\":\"user_1001\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void register_duplicateAccount_returnsConflict() throws Exception {
+        mockMvc.perform(
+                        MockMvcRequestBuilders.post("/api/auth/register")
+                                .contentType("application/json")
+                                .content("{\"account\":\"admin\",\"password\":\"123456\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("账户已经存在，请直接登陆"));
+    }
+
+    @Test
+    void register_withBlankParams_returnsBadRequest() throws Exception {
+        mockMvc.perform(
+                        MockMvcRequestBuilders.post("/api/auth/register")
+                                .contentType("application/json")
+                                .content("{\"account\":\"   \",\"password\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("账号和密码不能为空"));
     }
 }
