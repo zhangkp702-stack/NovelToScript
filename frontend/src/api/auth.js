@@ -1,8 +1,30 @@
+const SESSION_ID_KEY = "ntc_session_id";
+const SESSION_ID_HEADER = "X-Session-Id";
+
+function getSessionId() {
+  return localStorage.getItem(SESSION_ID_KEY);
+}
+
+function saveSessionId(sessionId) {
+  if (sessionId) {
+    localStorage.setItem(SESSION_ID_KEY, sessionId);
+  }
+}
+
+function clearSessionId() {
+  localStorage.removeItem(SESSION_ID_KEY);
+}
+
 async function request(url, method, body) {
+  const headers = body ? { "Content-Type": "application/json" } : {};
+  const sessionId = getSessionId();
+  if (sessionId) {
+    headers[SESSION_ID_HEADER] = sessionId;
+  }
   const response = await fetch(url, {
     method,
     credentials: "include",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined
   });
 
@@ -18,7 +40,12 @@ export function register(payload) {
 }
 
 export function login(payload) {
-  return request("/api/auth/login", "POST", payload);
+  return request("/api/auth/login", "POST", payload).then((result) => {
+    if (result.response.ok && typeof result.payload === "object" && result.payload?.sessionId) {
+      saveSessionId(result.payload.sessionId);
+    }
+    return result;
+  });
 }
 
 export function currentUser() {
@@ -26,5 +53,10 @@ export function currentUser() {
 }
 
 export function logout() {
-  return request("/api/auth/logout", "POST");
+  return request("/api/auth/logout", "POST").then((result) => {
+    if (result.response.status === 204) {
+      clearSessionId();
+    }
+    return result;
+  });
 }
