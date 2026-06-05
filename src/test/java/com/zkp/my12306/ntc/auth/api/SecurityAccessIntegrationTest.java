@@ -1,5 +1,7 @@
 package com.zkp.my12306.ntc.auth.api;
 
+import com.zkp.my12306.ntc.config.SessionIdValidationFilter;
+import com.zkp.my12306.ntc.service.AuthSessionTokenService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,6 +13,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -24,6 +29,9 @@ class SecurityAccessIntegrationTest {
 
     @Autowired
     private WebApplicationContext webApplicationContext;
+
+    @Autowired
+    private AuthSessionTokenService authSessionTokenService;
 
     private MockMvc mockMvc;
 
@@ -43,7 +51,10 @@ class SecurityAccessIntegrationTest {
     @Test
     @WithMockUser(username = "admin")
     void probe_withAuthentication_returnsOk() throws Exception {
-        mockMvc.perform(MockMvcRequestBuilders.get("/api/auth/probe"))
+        String sessionId = authSessionTokenService.createSessionToken("admin");
+        mockMvc.perform(
+                        MockMvcRequestBuilders.get("/api/auth/probe")
+                                .header(SessionIdValidationFilter.SESSION_ID_HEADER, sessionId))
                 .andExpect(status().isOk())
                 .andExpect(content().string("已认证"));
     }
@@ -62,15 +73,26 @@ class SecurityAccessIntegrationTest {
                                 .content("{\"username\":\"admin\",\"password\":\"1233321\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
+        String sessionId = extractSessionId(loginResult.getResponse().getContentAsString());
 
         MockHttpSession session = (MockHttpSession) loginResult.getRequest().getSession(false);
         assertNotNull(session);
+        assertNotNull(sessionId);
 
         mockMvc.perform(
                         MockMvcRequestBuilders.get("/api/auth/me")
+                                .header(SessionIdValidationFilter.SESSION_ID_HEADER, sessionId)
                                 .session(session))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"username\":\"admin\",\"authenticated\":true}"));
+    }
+
+    private String extractSessionId(String loginResponse) {
+        Matcher matcher = Pattern.compile("\"sessionId\"\\s*:\\s*\"([^\"]+)\"").matcher(loginResponse);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
     }
 
     @Test
