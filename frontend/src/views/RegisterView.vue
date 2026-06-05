@@ -6,8 +6,7 @@ import { register } from "../api/auth";
 const router = useRouter();
 const form = reactive({
   account: "",
-  password: "",
-  userName: ""
+  password: ""
 });
 const notice = ref("");
 const noticeType = ref("info");
@@ -23,15 +22,12 @@ async function onRegister() {
   try {
     const payload = {
       account: form.account.trim(),
-      password: form.password,
-      userName: form.userName.trim()
+      password: form.password
     };
-    if (!payload.userName) {
-      delete payload.userName;
-    }
     const { response, payload: resBody } = await register(payload);
     if (response.status === 201) {
-      showNotice("success", "注册成功，正在跳转登录页...");
+      const message = typeof resBody === "object" && resBody?.message ? resBody.message : "账户创建成功，请登录";
+      showNotice("success", `${message}，正在跳转登录页...`);
     } else {
       const message = typeof resBody === "object" && resBody?.message ? resBody.message : "注册失败";
       showNotice("error", `注册失败：${message}`);
@@ -58,15 +54,11 @@ async function onRegister() {
 
       <div class="field">
         <label>账号</label>
-        <input v-model="form.account" placeholder="4-32位字母、数字、下划线" autocomplete="username" />
+        <input v-model="form.account" placeholder="请输入账号" autocomplete="username" />
       </div>
       <div class="field">
         <label>密码</label>
-        <input v-model="form.password" type="password" placeholder="6-64位" autocomplete="new-password" />
-      </div>
-      <div class="field">
-        <label>昵称（可选）</label>
-        <input v-model="form.userName" placeholder="不填默认同账号" />
+        <input v-model="form.password" type="password" placeholder="请输入密码" autocomplete="new-password" />
       </div>
 
       <button class="primary" :disabled="loading" @click="onRegister">注册</button>
