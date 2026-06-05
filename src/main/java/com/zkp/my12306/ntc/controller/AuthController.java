@@ -2,6 +2,8 @@ package com.zkp.my12306.ntc.controller;
 
 import com.zkp.my12306.ntc.dto.LoginRequestDto;
 import com.zkp.my12306.ntc.dto.ErrorResponseDto;
+import com.zkp.my12306.ntc.dto.RegisterRequestDto;
+import com.zkp.my12306.ntc.dto.RegisterResponseDto;
 import com.zkp.my12306.ntc.dto.UserInfoResponseDto;
 import com.zkp.my12306.ntc.service.AuthSessionService;
 import org.springframework.http.HttpStatus;
@@ -31,7 +33,19 @@ public class AuthController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
         } catch (BadCredentialsException ex) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponseDto("invalid credentials"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponseDto("账号或密码错误"));
+        }
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody RegisterRequestDto request) {
+        try {
+            RegisterResponseDto response = authSessionService.register(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponseDto(ex.getMessage()));
         }
     }
 
@@ -48,6 +62,6 @@ public class AuthController {
 
     @GetMapping("/probe")
     public ResponseEntity<String> probe() {
-        return ResponseEntity.ok("authenticated");
+        return ResponseEntity.ok("已认证");
     }
 }
