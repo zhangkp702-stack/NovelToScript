@@ -1,7 +1,9 @@
 <script setup>
 import { reactive, ref } from "vue";
-import { currentUser, login, logout } from "../api/auth";
+import { useRouter } from "vue-router";
+import { currentUser, login } from "../api/auth";
 
+const router = useRouter();
 const form = reactive({
   username: "admin",
   password: "1233321"
@@ -24,7 +26,15 @@ async function onLogin() {
       password: form.password
     });
     if (response.ok) {
-      showNotice("success", "登录成功");
+      const meResult = await currentUser();
+      if (meResult.response.ok) {
+        showNotice("success", "登录成功，正在进入业务首页...");
+        setTimeout(() => {
+          router.push("/workbench");
+        }, 400);
+      } else {
+        showNotice("error", "登录态校验失败，请重试");
+      }
     } else {
       const message = typeof payload === "object" && payload?.message ? payload.message : "登录失败";
       showNotice("error", `登录失败：${message}`);
@@ -36,38 +46,6 @@ async function onLogin() {
   }
 }
 
-async function onCurrentUser() {
-  loading.value = true;
-  try {
-    const { response, payload } = await currentUser();
-    if (response.ok) {
-      const username = typeof payload === "object" && payload?.username ? payload.username : "当前会话用户";
-      showNotice("success", `当前登录用户：${username}`);
-    } else {
-      showNotice("error", "当前未登录");
-    }
-  } catch (error) {
-    showNotice("error", `查询异常：${error.message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function onLogout() {
-  loading.value = true;
-  try {
-    const { response } = await logout();
-    if (response.status === 204) {
-      showNotice("success", "已退出登录");
-    } else {
-      showNotice("error", "退出失败");
-    }
-  } catch (error) {
-    showNotice("error", `退出异常：${error.message}`);
-  } finally {
-    loading.value = false;
-  }
-}
 </script>
 
 <template>
@@ -87,11 +65,6 @@ async function onLogout() {
       </div>
 
       <button class="primary" :disabled="loading" @click="onLogin">登录</button>
-
-      <div class="button-row">
-        <button class="secondary" :disabled="loading" @click="onCurrentUser">查看当前用户</button>
-        <button class="secondary" :disabled="loading" @click="onLogout">退出登录</button>
-      </div>
 
       <router-link class="switch-link" to="/register">没有账号？去注册</router-link>
     </section>
