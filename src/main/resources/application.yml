@@ -18,9 +18,19 @@ auth:
     ttl-seconds: 7200
 
 llm:
+  trace:
+    enabled: true
+    max-error-length: 1000
   routing:
     first-token-timeout-ms: 8000
     connect-timeout-ms: 10000
+  stream-executor:
+    core-size: 4
+    max-size: 16
+    queue-capacity: 200
+    keep-alive-seconds: 60
+    thread-name-prefix: llm-stream-
+    rejection-policy: caller-runs
   models:
     - name: siliconflow-primary
       provider: siliconflow
