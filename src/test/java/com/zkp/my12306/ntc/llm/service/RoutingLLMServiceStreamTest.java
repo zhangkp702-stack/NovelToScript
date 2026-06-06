@@ -2,6 +2,7 @@ package com.zkp.my12306.ntc.llm.service;
 
 import com.zkp.my12306.ntc.llm.client.ChatClient;
 import com.zkp.my12306.ntc.llm.config.AIModelProperties;
+import com.zkp.my12306.ntc.llm.routing.ModelHealthStore;
 import com.zkp.my12306.ntc.llm.routing.ModelRoutingExecutor;
 import com.zkp.my12306.ntc.llm.routing.ModelSelector;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
@@ -204,8 +205,9 @@ class RoutingLLMServiceStreamTest {
 
         ModelSelector selector = mock(ModelSelector.class);
         when(selector.selectChatCandidates()).thenReturn(targets);
+        ModelHealthStore healthStore = new ModelHealthStore(properties);
 
-        return new RoutingLLMService(selector, new ModelRoutingExecutor(), properties, clients,
+        return new RoutingLLMService(selector, new ModelRoutingExecutor(healthStore), healthStore, properties, clients,
                 new StreamAsyncExecutor(properties));
     }
 

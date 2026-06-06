@@ -16,54 +16,36 @@ public class ModelSelector {
     private static final Logger log = LoggerFactory.getLogger(ModelSelector.class);
 
     private final AIModelProperties properties;
+    private final ModelHealthStore healthStore;
 
-    public ModelSelector(AIModelProperties properties) {
+    public ModelSelector(AIModelProperties properties, ModelHealthStore healthStore) {
         this.properties = properties;
+        this.healthStore = healthStore;
     }
 
     public List<ModelTarget> selectChatCandidates() {
-        return selectChatCandidates(false);
-    }
-
-    public List<ModelTarget> selectChatCandidates(boolean deepThinking) {
         AIModelProperties.ModelGroup group = properties.getChat();
         if (group == null) {
             return List.of();
         }
-        String firstChoiceModelId = resolveFirstChoiceModel(group, deepThinking);
-        return selectCandidates(group, firstChoiceModelId, deepThinking);
+        return selectCandidates(group, group.getDefaultModel());
     }
 
-    private String resolveFirstChoiceModel(AIModelProperties.ModelGroup group, boolean deepThinking) {
-        if (deepThinking) {
-            String deepModel = group.getDeepThinkingModel();
-            if (deepModel != null && !deepModel.isBlank()) {
-                return deepModel;
-            }
-        }
-        return group.getDefaultModel();
-    }
-
-    private List<ModelTarget> selectCandidates(
-            AIModelProperties.ModelGroup group,
-            String firstChoiceModelId,
-            boolean deepThinking) {
+    private List<ModelTarget> selectCandidates(AIModelProperties.ModelGroup group, String firstChoiceModelId) {
         if (group.getCandidates() == null) {
             return List.of();
         }
 
         List<AIModelProperties.ModelCandidate> orderedCandidates =
-                filterAndSortCandidates(group.getCandidates(), firstChoiceModelId, deepThinking);
+                filterAndSortCandidates(group.getCandidates(), firstChoiceModelId);
         return buildAvailableTargets(orderedCandidates);
     }
 
     private List<AIModelProperties.ModelCandidate> filterAndSortCandidates(
             List<AIModelProperties.ModelCandidate> candidates,
-            String firstChoiceModelId,
-            boolean deepThinking) {
-        List<AIModelProperties.ModelCandidate> enabled = candidates.stream()
+            String firstChoiceModelId) {
+        return candidates.stream()
                 .filter(candidate -> candidate != null && !Boolean.FALSE.equals(candidate.getEnabled()))
-                .filter(candidate -> !deepThinking || Boolean.TRUE.equals(candidate.getSupportsThinking()))
                 .sorted(Comparator
                         .comparing((AIModelProperties.ModelCandidate candidate) ->
                                 !Objects.equals(resolveId(candidate), firstChoiceModelId))
@@ -72,12 +54,6 @@ public class ModelSelector {
                         .thenComparing(AIModelProperties.ModelCandidate::getId,
                                 Comparator.nullsLast(String::compareTo)))
                 .collect(Collectors.toList());
-
-        if (deepThinking && enabled.isEmpty()) {
-            log.warn("深度思考模式没有可用候选模型");
-        }
-
-        return enabled;
     }
 
     private List<ModelTarget> buildAvailableTargets(List<AIModelProperties.ModelCandidate> candidates) {
@@ -92,6 +68,10 @@ public class ModelSelector {
             AIModelProperties.ModelCandidate candidate,
             Map<String, AIModelProperties.ProviderConfig> providers) {
         String modelId = resolveId(candidate);
+        if (healthStore.isUnavailable(modelId)) {
+            log.warn("模型处于熔断状态，跳过: modelId={}", modelId);
+            return null;
+        }
         AIModelProperties.ProviderConfig provider = providers.get(candidate.getProvider());
         if (provider == null) {
             log.warn("Provider配置缺失: provider={}, modelId={}", candidate.getProvider(), modelId);
