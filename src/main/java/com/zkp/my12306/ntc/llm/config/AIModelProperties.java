@@ -17,13 +17,11 @@ public class AIModelProperties {
     private Map<String, ProviderConfig> providers = new HashMap<>();
     private ModelGroup chat = new ModelGroup();
     private Selection selection = new Selection();
-    private Stream stream = new Stream();
     private StreamExecutor streamExecutor = new StreamExecutor();
 
     @Data
     public static class ModelGroup {
         private String defaultModel;
-        private String deepThinkingModel;
         private List<ModelCandidate> candidates = new ArrayList<>();
     }
 
@@ -35,7 +33,6 @@ public class AIModelProperties {
         private String url;
         private Integer priority = 100;
         private Boolean enabled = true;
-        private Boolean supportsThinking = false;
     }
 
     @Data
@@ -52,11 +49,6 @@ public class AIModelProperties {
         private Integer firstTokenTimeoutMs = 60000;
         private Integer connectTimeoutMs = 10000;
         private Integer requestTimeoutMs = 120000;
-    }
-
-    @Data
-    public static class Stream {
-        private Integer messageChunkSize = 5;
     }
 
     @Data
