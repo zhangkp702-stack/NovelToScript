@@ -5,48 +5,58 @@ import com.zkp.my12306.ntc.dto.ScriptGenerateResponseDto;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
+import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
+import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
+import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class ScriptApplicationServiceImpl implements ScriptApplicationService {
-    private static final int MIN_CHAPTERS = 3;
-    private final LLMService llmService;
 
-    public ScriptApplicationServiceImpl(LLMService llmService) {
+    private final LLMService llmService;
+    private final ScriptInputValidator inputValidator;
+    private final ScriptPromptBuilder promptBuilder;
+    private final ScriptOutputParser outputParser;
+    private final ScriptSchemaValidator schemaValidator;
+
+    public ScriptApplicationServiceImpl(
+            LLMService llmService,
+            ScriptInputValidator inputValidator,
+            ScriptPromptBuilder promptBuilder,
+            ScriptOutputParser outputParser,
+            ScriptSchemaValidator schemaValidator) {
         this.llmService = llmService;
+        this.inputValidator = inputValidator;
+        this.promptBuilder = promptBuilder;
+        this.outputParser = outputParser;
+        this.schemaValidator = schemaValidator;
     }
 
     @Override
     @TraceRoot(name = "scriptGenerate")
     public ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser) {
-        validateInput(request);
-        String prompt = buildPrompt(request.title(), request.chapters());
+        List<String> chapters = normalizeChapters(request);
+        inputValidator.validate(chapters);
+        String prompt = promptBuilder.build(request == null ? null : request.title(), chapters);
         ChatResult llmResponse = llmService.chat(prompt);
-        return new ScriptGenerateResponseDto(llmResponse.content(), llmResponse.modelName());
+        ScriptDocument document = outputParser.parse(llmResponse.content());
+        schemaValidator.validate(document);
+        return new ScriptGenerateResponseDto(
+                llmResponse.modelName(),
+                document.toMap(),
+                llmResponse.content());
     }
 
-    private void validateInput(ScriptGenerateRequestDto request) {
-        if (request == null || request.chapters() == null || request.chapters().size() < MIN_CHAPTERS) {
-            throw new IllegalArgumentException("至少提交3个章节内容");
+    private List<String> normalizeChapters(ScriptGenerateRequestDto request) {
+        if (request == null || request.chapters() == null) {
+            return List.of();
         }
-        boolean hasBlank = request.chapters().stream().anyMatch(item -> item == null || item.isBlank());
-        if (hasBlank) {
-            throw new IllegalArgumentException("章节内容不能为空");
-        }
-    }
-
-    private String buildPrompt(String title, List<String> chapters) {
-        StringBuilder builder = new StringBuilder();
-        if (title != null && !title.isBlank()) {
-            builder.append("标题：").append(title.trim()).append("\n");
-        }
-        builder.append("请将以下小说内容转换成剧本格式：\n");
-        for (int i = 0; i < chapters.size(); i++) {
-            builder.append("第").append(i + 1).append("章：\n").append(chapters.get(i)).append("\n");
-        }
-        return builder.toString();
+        return new ArrayList<>(request.chapters());
     }
 }
