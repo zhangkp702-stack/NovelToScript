@@ -1,6 +1,6 @@
 package com.zkp.my12306.ntc.llm.aop;
 
-import com.zkp.my12306.ntc.llm.config.LlmRuntimeProperties;
+import com.zkp.my12306.ntc.llm.config.LlmTraceProperties;
 import com.zkp.my12306.ntc.llm.dao.entity.LlmTraceNodeDO;
 import com.zkp.my12306.ntc.llm.dao.entity.LlmTraceRunDO;
 import com.zkp.my12306.ntc.llm.service.LlmTraceRecordService;
@@ -31,16 +31,16 @@ public class LlmTraceAspect {
     private static final String STATUS_ERROR = "ERROR";
 
     private final LlmTraceRecordService traceRecordService;
-    private final LlmRuntimeProperties runtimeProperties;
+    private final LlmTraceProperties traceProperties;
 
-    public LlmTraceAspect(LlmTraceRecordService traceRecordService, LlmRuntimeProperties runtimeProperties) {
+    public LlmTraceAspect(LlmTraceRecordService traceRecordService, LlmTraceProperties traceProperties) {
         this.traceRecordService = traceRecordService;
-        this.runtimeProperties = runtimeProperties;
+        this.traceProperties = traceProperties;
     }
 
     @Around("@annotation(traceRoot)")
     public Object aroundRoot(ProceedingJoinPoint joinPoint, TraceRoot traceRoot) throws Throwable {
-        if (!runtimeProperties.getTrace().isEnabled()) {
+        if (!traceProperties.isEnabled()) {
             return joinPoint.proceed();
         }
 
@@ -97,7 +97,7 @@ public class LlmTraceAspect {
 
     @Around("@annotation(traceNode)")
     public Object aroundNode(ProceedingJoinPoint joinPoint, TraceNode traceNode) throws Throwable {
-        if (!runtimeProperties.getTrace().isEnabled()) {
+        if (!traceProperties.isEnabled()) {
             return joinPoint.proceed();
         }
 
@@ -191,7 +191,7 @@ public class LlmTraceAspect {
         }
         String message = throwable.getClass().getSimpleName() + ": "
                 + defaultIfBlank(throwable.getMessage(), "");
-        int maxLength = runtimeProperties.getTrace().getMaxErrorLength();
+        int maxLength = traceProperties.getMaxErrorLength();
         if (message.length() <= maxLength) {
             return message;
         }
