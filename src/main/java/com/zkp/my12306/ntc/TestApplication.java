@@ -1,4 +1,4 @@
-package com.zkp.my12306.test;
+package com.zkp.my12306.ntc;
 
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
