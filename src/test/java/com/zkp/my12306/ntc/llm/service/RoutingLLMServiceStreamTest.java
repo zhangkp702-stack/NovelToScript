@@ -195,7 +195,8 @@ class RoutingLLMServiceStreamTest {
         properties.setRouting(routing);
         properties.setModels(new ArrayList<>(targets));
         ModelSelector selector = new ModelSelector(properties);
-        return new RoutingLLMService(selector, new ModelRoutingExecutor(), properties, clients, new StreamAsyncExecutor());
+        return new RoutingLLMService(selector, new ModelRoutingExecutor(), properties, clients,
+                new StreamAsyncExecutor(properties));
     }
 
     private static class CallbackCollector implements StreamCallback {
