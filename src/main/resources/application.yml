@@ -6,11 +6,24 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: 192.168.126.100
+      port: 6379
+      password: 123456
+
+auth:
+  session:
+    use-redis: true
+    ttl-seconds: 7200
 
 llm:
   trace:
     enabled: true
     max-error-length: 1000
+  routing:
+    first-token-timeout-ms: 8000
+    connect-timeout-ms: 10000
   stream-executor:
     core-size: 4
     max-size: 16
@@ -18,3 +31,31 @@ llm:
     keep-alive-seconds: 60
     thread-name-prefix: llm-stream-
     rejection-policy: caller-runs
+  models:
+    - name: siliconflow-primary
+      provider: siliconflow
+      base-url: https://api.siliconflow.cn
+      api-key: ${SILICONFLOW_API_KEY:}
+      model: Qwen/Qwen2.5-7B-Instruct
+      priority: 1
+      enabled: false
+      chat-completions-path: /v1/chat/completions
+      timeout-ms: 120000
+    - name: deepseek-backup
+      provider: deepseek
+      base-url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY:}
+      model: deepseek-chat
+      priority: 2
+      enabled: false
+      chat-completions-path: /v1/chat/completions
+      timeout-ms: 120000
+    - name: ollama-local
+      provider: ollama
+      base-url: http://127.0.0.1:11434
+      api-key: local
+      model: "qwen2.5:7b"
+      priority: 3
+      enabled: true
+      chat-completions-path: /v1/chat/completions
+      timeout-ms: 120000
