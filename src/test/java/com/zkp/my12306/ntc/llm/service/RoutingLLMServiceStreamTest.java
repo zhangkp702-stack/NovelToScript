@@ -1,7 +1,7 @@
 package com.zkp.my12306.ntc.llm.service;
 
 import com.zkp.my12306.ntc.llm.client.ChatClient;
-import com.zkp.my12306.ntc.llm.config.LlmRuntimeProperties;
+import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.routing.ModelRoutingExecutor;
 import com.zkp.my12306.ntc.llm.routing.ModelSelector;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
@@ -11,8 +11,9 @@ import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandle;
 import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandles;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class RoutingLLMServiceStreamTest {
 
@@ -41,7 +44,7 @@ class RoutingLLMServiceStreamTest {
 
             @Override
             public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
-                callback.onOpen(modelTarget.getName());
+                callback.onOpen(modelTarget.id());
                 return StreamCancellationHandles.noOp();
             }
         };
@@ -59,7 +62,7 @@ class RoutingLLMServiceStreamTest {
 
             @Override
             public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
-                callback.onOpen(modelTarget.getName());
+                callback.onOpen(modelTarget.id());
                 callback.onToken("backup-token");
                 callback.onComplete();
                 return StreamCancellationHandles.noOp();
@@ -95,7 +98,7 @@ class RoutingLLMServiceStreamTest {
 
             @Override
             public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
-                callback.onOpen(modelTarget.getName());
+                callback.onOpen(modelTarget.id());
                 callback.onError(new IllegalStateException("A-error"));
                 return StreamCancellationHandles.noOp();
             }
@@ -114,7 +117,7 @@ class RoutingLLMServiceStreamTest {
 
             @Override
             public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
-                callback.onOpen(modelTarget.getName());
+                callback.onOpen(modelTarget.id());
                 callback.onToken("b-token");
                 callback.onComplete();
                 return StreamCancellationHandles.noOp();
@@ -148,7 +151,7 @@ class RoutingLLMServiceStreamTest {
 
             @Override
             public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
-                callback.onOpen(modelTarget.getName());
+                callback.onOpen(modelTarget.id());
                 Thread worker = new Thread(() -> {
                     try {
                         Thread.sleep(150);
@@ -175,26 +178,33 @@ class RoutingLLMServiceStreamTest {
         assertFalse(collector.containsPrefix("error:"));
     }
 
-    private static ModelTarget model(String name, String provider, int priority) {
-        ModelTarget target = new ModelTarget();
-        target.setName(name);
-        target.setProvider(provider);
-        target.setBaseUrl("http://127.0.0.1");
-        target.setModel("mock-model");
-        target.setApiKey("mock-key");
-        target.setEnabled(true);
-        target.setPriority(priority);
-        return target;
+    private static ModelTarget model(String id, String provider, int priority) {
+        AIModelProperties.ModelCandidate candidate = new AIModelProperties.ModelCandidate();
+        candidate.setId(id);
+        candidate.setProvider(provider);
+        candidate.setModel("mock-model");
+        candidate.setPriority(priority);
+        candidate.setEnabled(true);
+
+        AIModelProperties.ProviderConfig providerConfig = new AIModelProperties.ProviderConfig();
+        providerConfig.setUrl("http://127.0.0.1");
+        providerConfig.setApiKey("mock-key");
+        providerConfig.setEndpoints(new HashMap<>(Map.of("chat", "/v1/chat/completions")));
+
+        return new ModelTarget(id, candidate, providerConfig);
     }
 
     private static RoutingLLMService service(List<ModelTarget> targets, List<ChatClient> clients, int firstTokenTimeoutMs) {
-        LlmRuntimeProperties properties = new LlmRuntimeProperties();
-        LlmRuntimeProperties.Routing routing = new LlmRuntimeProperties.Routing();
-        routing.setFirstTokenTimeoutMs(firstTokenTimeoutMs);
-        routing.setConnectTimeoutMs(1000);
-        properties.setRouting(routing);
-        properties.setModels(new ArrayList<>(targets));
-        ModelSelector selector = new ModelSelector(properties);
+        AIModelProperties properties = new AIModelProperties();
+        AIModelProperties.Selection selection = new AIModelProperties.Selection();
+        selection.setFirstTokenTimeoutMs(firstTokenTimeoutMs);
+        selection.setConnectTimeoutMs(1000);
+        selection.setRequestTimeoutMs(120000);
+        properties.setSelection(selection);
+
+        ModelSelector selector = mock(ModelSelector.class);
+        when(selector.selectChatCandidates()).thenReturn(targets);
+
         return new RoutingLLMService(selector, new ModelRoutingExecutor(), properties, clients,
                 new StreamAsyncExecutor(properties));
     }

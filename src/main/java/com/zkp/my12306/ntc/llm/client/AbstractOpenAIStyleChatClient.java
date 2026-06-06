@@ -2,6 +2,8 @@ package com.zkp.my12306.ntc.llm.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zkp.my12306.ntc.llm.enums.ModelCapability;
+import com.zkp.my12306.ntc.llm.http.ModelUrlResolver;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.stream.StreamAsyncExecutor;
@@ -28,15 +30,18 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     private final OpenAIStyleSseParser openAIStyleSseParser;
     private final StreamAsyncExecutor streamAsyncExecutor;
     private final HttpClient httpClient;
+    private final int requestTimeoutMs;
 
     protected AbstractOpenAIStyleChatClient(
             ObjectMapper objectMapper,
             OpenAIStyleSseParser openAIStyleSseParser,
             StreamAsyncExecutor streamAsyncExecutor,
-            int connectTimeoutMs) {
+            int connectTimeoutMs,
+            int requestTimeoutMs) {
         this.objectMapper = objectMapper;
         this.openAIStyleSseParser = openAIStyleSseParser;
         this.streamAsyncExecutor = streamAsyncExecutor;
+        this.requestTimeoutMs = requestTimeoutMs;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .build();
@@ -46,12 +51,12 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     public ChatResult chat(String prompt, ModelTarget modelTarget) {
         try {
             String body = buildRequestBody(prompt, modelTarget, false);
-            HttpRequest request = buildRequest(modelTarget, body, modelTarget.getTimeoutMs());
+            HttpRequest request = buildRequest(modelTarget, body);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("模型请求失败，provider=" + provider() + ", status=" + response.statusCode());
             }
-            return parseChatResponse(response.body(), modelTarget.getName());
+            return parseChatResponse(response.body(), modelTarget.id());
         } catch (Exception ex) {
             throw new IllegalStateException("模型调用失败，provider=" + provider(), ex);
         }
@@ -60,9 +65,9 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     @Override
     public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
         try {
-            callback.onOpen(modelTarget.getName());
+            callback.onOpen(modelTarget.id());
             String body = buildRequestBody(prompt, modelTarget, true);
-            HttpRequest request = buildRequest(modelTarget, body, modelTarget.getTimeoutMs());
+            HttpRequest request = buildRequest(modelTarget, body);
             AtomicBoolean cancelled = new AtomicBoolean(false);
             AtomicReference<CompletableFuture<?>> requestFutureRef = new AtomicReference<>();
             AtomicReference<CompletableFuture<?>> parseFutureRef = new AtomicReference<>();
@@ -106,29 +111,23 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         }
     }
 
-    private HttpRequest buildRequest(ModelTarget modelTarget, String body, Integer timeoutMs) {
-        int safeTimeout = timeoutMs == null || timeoutMs <= 0 ? 120000 : timeoutMs;
-        String path = modelTarget.getChatCompletionsPath() == null || modelTarget.getChatCompletionsPath().isBlank()
-                ? "/v1/chat/completions" : modelTarget.getChatCompletionsPath();
-        return HttpRequest.newBuilder()
-                .uri(URI.create(trimSlash(modelTarget.getBaseUrl()) + path))
-                .timeout(Duration.ofMillis(safeTimeout))
+    private HttpRequest buildRequest(ModelTarget modelTarget, String body) {
+        String url = ModelUrlResolver.resolveUrl(modelTarget.provider(), modelTarget.candidate(), ModelCapability.CHAT);
+        String apiKey = modelTarget.provider().getApiKey();
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofMillis(requestTimeoutMs))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + modelTarget.getApiKey())
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-    }
-
-    private String trimSlash(String input) {
-        if (input == null) {
-            return "";
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
         }
-        return input.endsWith("/") ? input.substring(0, input.length() - 1) : input;
+        return builder.build();
     }
 
     private String buildRequestBody(String prompt, ModelTarget modelTarget, boolean stream) throws IOException {
         Map<String, Object> payload = Map.of(
-                "model", modelTarget.getModel(),
+                "model", modelTarget.candidate().getModel(),
                 "stream", stream,
                 "messages", List.of(Map.of("role", "user", "content", prompt)));
         return objectMapper.writeValueAsString(payload);

@@ -15,15 +15,17 @@ public class ModelRoutingExecutor {
             Map<String, ChatClient> clientMap) {
         IllegalStateException lastException = null;
         for (ModelTarget target : targets) {
-            ChatClient chatClient = clientMap.get(target.getProvider());
+            String provider = target.candidate().getProvider();
+            ChatClient chatClient = clientMap.get(provider);
             if (chatClient == null) {
-                lastException = new IllegalStateException("未找到 provider 对应客户端：" + target.getProvider() + "（model=" + target.getName() + "）");
+                lastException = new IllegalStateException(
+                        "未找到 provider 对应客户端：" + provider + "（model=" + target.id() + "）");
                 continue;
             }
             try {
                 return chatClient.chat(prompt, target);
             } catch (Exception ex) {
-                lastException = new IllegalStateException("模型调用失败：" + target.getName(), ex);
+                lastException = new IllegalStateException("模型调用失败：" + target.id(), ex);
             }
         }
         if (lastException != null) {
