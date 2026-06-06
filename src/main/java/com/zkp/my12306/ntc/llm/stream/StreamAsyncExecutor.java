@@ -1,7 +1,7 @@
 package com.zkp.my12306.ntc.llm.stream;
 
 import com.alibaba.ttl.threadpool.TtlExecutors;
-import com.zkp.my12306.ntc.llm.config.LlmRuntimeProperties;
+import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
@@ -19,14 +19,14 @@ public class StreamAsyncExecutor {
     private final ThreadPoolExecutor rawExecutor;
     private final ExecutorService executorService;
 
-    public StreamAsyncExecutor(LlmRuntimeProperties properties) {
-        LlmRuntimeProperties.StreamExecutor config = properties.getStreamExecutor();
-        int coreSize = positive(config.getCoreSize(), "llm.stream-executor.core-size");
-        int maxSize = positive(config.getMaxSize(), "llm.stream-executor.max-size");
-        int queueCapacity = positive(config.getQueueCapacity(), "llm.stream-executor.queue-capacity");
-        int keepAliveSeconds = positive(config.getKeepAliveSeconds(), "llm.stream-executor.keep-alive-seconds");
+    public StreamAsyncExecutor(AIModelProperties properties) {
+        AIModelProperties.StreamExecutor config = properties.getStreamExecutor();
+        int coreSize = positive(config.getCoreSize(), "ai.stream-executor.core-size");
+        int maxSize = positive(config.getMaxSize(), "ai.stream-executor.max-size");
+        int queueCapacity = positive(config.getQueueCapacity(), "ai.stream-executor.queue-capacity");
+        int keepAliveSeconds = positive(config.getKeepAliveSeconds(), "ai.stream-executor.keep-alive-seconds");
         if (maxSize < coreSize) {
-            throw new IllegalStateException("llm.stream-executor.max-size 不能小于 core-size");
+            throw new IllegalStateException("ai.stream-executor.max-size 不能小于 core-size");
         }
         String threadPrefix = config.getThreadNamePrefix() == null || config.getThreadNamePrefix().isBlank()
                 ? "llm-stream-" : config.getThreadNamePrefix();

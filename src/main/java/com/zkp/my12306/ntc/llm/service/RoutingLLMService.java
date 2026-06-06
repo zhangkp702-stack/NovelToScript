@@ -1,7 +1,7 @@
 package com.zkp.my12306.ntc.llm.service;
 
 import com.zkp.my12306.ntc.llm.client.ChatClient;
-import com.zkp.my12306.ntc.llm.config.LlmRuntimeProperties;
+import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.routing.ModelRoutingExecutor;
 import com.zkp.my12306.ntc.llm.routing.ModelSelector;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
@@ -24,19 +24,19 @@ import java.util.concurrent.atomic.AtomicReference;
 public class RoutingLLMService implements LLMService {
     private final ModelSelector modelSelector;
     private final ModelRoutingExecutor modelRoutingExecutor;
-    private final LlmRuntimeProperties llmRuntimeProperties;
+    private final AIModelProperties aiModelProperties;
     private final Map<String, ChatClient> chatClientMap;
     private final StreamAsyncExecutor streamAsyncExecutor;
 
     public RoutingLLMService(
             ModelSelector modelSelector,
             ModelRoutingExecutor modelRoutingExecutor,
-            LlmRuntimeProperties llmRuntimeProperties,
+            AIModelProperties aiModelProperties,
             List<ChatClient> chatClients,
             StreamAsyncExecutor streamAsyncExecutor) {
         this.modelSelector = modelSelector;
         this.modelRoutingExecutor = modelRoutingExecutor;
-        this.llmRuntimeProperties = llmRuntimeProperties;
+        this.aiModelProperties = aiModelProperties;
         this.streamAsyncExecutor = streamAsyncExecutor;
         this.chatClientMap = new ConcurrentHashMap<>();
         for (ChatClient chatClient : chatClients) {
@@ -47,7 +47,7 @@ public class RoutingLLMService implements LLMService {
     @Override
     @TraceNode(name = "llmSyncChat", type = "LLM")
     public ChatResult chat(String prompt) {
-        List<ModelTarget> targets = modelSelector.selectTargets();
+        List<ModelTarget> targets = modelSelector.selectChatCandidates();
         if (targets.isEmpty()) {
             throw new IllegalStateException("未找到可用的大模型配置");
         }
@@ -57,7 +57,7 @@ public class RoutingLLMService implements LLMService {
     @Override
     @TraceNode(name = "llmStreamChat", type = "LLM")
     public StreamCancellationHandle streamChat(String prompt, StreamCallback callback) {
-        List<ModelTarget> targets = modelSelector.selectTargets();
+        List<ModelTarget> targets = modelSelector.selectChatCandidates();
         if (targets.isEmpty()) {
             throw new IllegalStateException("未找到可用的大模型配置");
         }
@@ -69,7 +69,7 @@ public class RoutingLLMService implements LLMService {
                 if (cancelled.get()) {
                     return;
                 }
-                ChatClient chatClient = chatClientMap.get(target.getProvider());
+                ChatClient chatClient = chatClientMap.get(target.candidate().getProvider());
                 if (chatClient == null) {
                     continue;
                 }
@@ -109,7 +109,7 @@ public class RoutingLLMService implements LLMService {
                     ProbeStreamBridge bridge = new ProbeStreamBridge(bufferedCallback);
                     StreamCancellationHandle delegate = chatClient.streamChat(prompt, target, bridge);
                     activeDelegate.set(delegate);
-                    long timeoutMs = llmRuntimeProperties.getRouting().getFirstTokenTimeoutMs();
+                    long timeoutMs = aiModelProperties.getSelection().getFirstTokenTimeoutMs();
                     ProbeStreamBridge.FirstEvent firstEvent = bridge.awaitFirstEvent(timeoutMs);
                     if (firstEvent.type() == ProbeStreamBridge.FirstEventType.TOKEN
                             || firstEvent.type() == ProbeStreamBridge.FirstEventType.COMPLETE) {
@@ -122,16 +122,16 @@ public class RoutingLLMService implements LLMService {
                     if (firstEvent.type() == ProbeStreamBridge.FirstEventType.ERROR) {
                         Throwable error = bufferedCallback.getErrorBeforePromote();
                         Throwable cause = error == null ? firstEvent.throwable() : error;
-                        lastException = new IllegalStateException("流式模型调用失败：" + target.getName(), cause);
+                        lastException = new IllegalStateException("流式模型调用失败：" + target.id(), cause);
                     } else {
-                        lastException = new IllegalStateException("首包超时，已切换备用模型：" + target.getName());
+                        lastException = new IllegalStateException("首包超时，已切换备用模型：" + target.id());
                     }
                 } catch (Exception ex) {
                     attemptActive.set(false);
                     if (bufferedCallback != null) {
                         bufferedCallback.clearBuffer();
                     }
-                    lastException = new IllegalStateException("流式模型调用失败：" + target.getName(), ex);
+                    lastException = new IllegalStateException("流式模型调用失败：" + target.id(), ex);
                 }
             }
             if (!cancelled.get()) {
