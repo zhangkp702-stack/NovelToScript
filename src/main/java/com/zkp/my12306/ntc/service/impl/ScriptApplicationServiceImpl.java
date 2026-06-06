@@ -4,6 +4,7 @@ import com.zkp.my12306.ntc.dto.ScriptGenerateRequestDto;
 import com.zkp.my12306.ntc.dto.ScriptGenerateResponseDto;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
+import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +20,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
     }
 
     @Override
+    @TraceRoot(name = "scriptGenerate")
     public ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser) {
         validateInput(request);
         String prompt = buildPrompt(request.title(), request.chapters());

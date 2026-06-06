@@ -11,6 +11,7 @@ import com.zkp.my12306.ntc.llm.stream.StreamAsyncExecutor;
 import com.zkp.my12306.ntc.llm.stream.StreamCallback;
 import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandle;
 import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandles;
+import com.zkp.my12306.ntc.llm.trace.TraceNode;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -44,6 +45,7 @@ public class RoutingLLMService implements LLMService {
     }
 
     @Override
+    @TraceNode(name = "llmSyncChat", type = "LLM")
     public ChatResult chat(String prompt) {
         List<ModelTarget> targets = modelSelector.selectTargets();
         if (targets.isEmpty()) {
@@ -53,6 +55,7 @@ public class RoutingLLMService implements LLMService {
     }
 
     @Override
+    @TraceNode(name = "llmStreamChat", type = "LLM")
     public StreamCancellationHandle streamChat(String prompt, StreamCallback callback) {
         List<ModelTarget> targets = modelSelector.selectTargets();
         if (targets.isEmpty()) {
