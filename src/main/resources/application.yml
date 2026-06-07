@@ -64,7 +64,7 @@ ai:
     request-timeout-ms: 300000
   generation:
     # 兼顾完整度与格式稳定：足够写细节，又避免过长输出退化
-    max-tokens: 12144
+    max-tokens: 16144
     temperature: 0.1
     frequency-penalty: 0.0
     presence-penalty: 0.0

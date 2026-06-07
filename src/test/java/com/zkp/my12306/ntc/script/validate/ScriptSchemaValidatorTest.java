@@ -17,7 +17,16 @@ class ScriptSchemaValidatorTest {
     private final ScriptSchemaValidator validator = new ScriptSchemaValidator();
 
     @Test
-    void validate_currentPromptFormat_passes() {
+    void validate_chapterFragmentSample_passes() throws Exception {
+        String yaml = new ClassPathResource("script/sample_chapter_fragment.yaml")
+                .getContentAsString(StandardCharsets.UTF_8);
+        ScriptDocument document = parser.parse(yaml);
+
+        assertDoesNotThrow(() -> validator.validateChapterFragment(document));
+    }
+
+    @Test
+    void validate_naturalScript_passes() {
         String script = """
                 剧本标题：《雨夜归来》
                 原章节标题：第一章
@@ -34,45 +43,80 @@ class ScriptSchemaValidatorTest {
     }
 
     @Test
-    void validate_naturalScriptMissingScene_fails() {
-        String script = """
-                剧本标题：《雨夜归来》
-                原章节标题：第一章
+    void validate_chapterFragmentMissingDocumentType_fails() {
+        String yaml = """
+                元信息:
+                  标题: 测试
+                  来源类型: 小说
+                  语言: 简体中文
+                章节信息:
+                  章节编号: "1"
+                  原文标题: 第一章
+                原文概述:
+                  原文梗概: 测试
+                  主要冲突: 测试
+                  关键事件: 测试
+                人物列表:
+                  - 编号: 人物_001
+                    姓名: 甲
+                    角色类型: 主角
+                    简介: 测试
+                场景列表:
+                  - 场景编号: 场景_001
+                    场景标题: 测试
+                    场景头: 内景，测试，夜
+                    地点: 测试
+                    时间: 夜
+                    出场人物: 甲
+                    剧本正文: 旁白：测试
+                说明:
+                  改编策略: 测试
+                  修改建议: 测试
                 """;
-        ScriptDocument document = parser.parse(script);
+        ScriptDocument document = parser.parse(yaml);
 
         ScriptSchemaValidationException ex = assertThrows(
                 ScriptSchemaValidationException.class,
-                () -> validator.validate(document));
-        assertTrue(ex.getMessage().contains("场景"));
-    }
-
-    @Test
-    void validate_sampleDocument_passes() throws Exception {
-        String yaml = new ClassPathResource("script/sample_valid_script.yaml")
-                .getContentAsString(StandardCharsets.UTF_8);
-        ScriptDocument document = parser.parse(yaml);
-
-        assertDoesNotThrow(() -> validator.validate(document));
+                () -> validator.validateChapterFragment(document));
+        assertTrue(ex.getMessage().contains("文档类型"));
     }
 
     @Test
     void validate_missingMetadataTitle_fails() {
         String yaml = """
-                metadata:
-                  source_type: novel
-                  language: zh-CN
-                  generated_at: "2026-06-05T12:00:00+08:00"
-                  schema_version: "1.0.0"
-                characters: []
-                scenes: []
-                notes: {}
+                文档类型: 按章剧本片段
+                元信息:
+                  来源类型: 小说
+                  语言: 简体中文
+                章节信息:
+                  章节编号: "1"
+                  原文标题: 第一章
+                原文概述:
+                  原文梗概: 测试
+                  主要冲突: 测试
+                  关键事件: 测试
+                人物列表:
+                  - 编号: 人物_001
+                    姓名: 甲
+                    角色类型: 主角
+                    简介: 测试
+                场景列表:
+                  - 场景编号: 场景_001
+                    场景标题: 测试
+                    场景头: 内景，测试，夜
+                    地点: 测试
+                    时间: 夜
+                    出场人物: 甲
+                    剧本正文: 旁白：测试
+                说明:
+                  改编策略: 测试
+                  修改建议: 测试
                 """;
         ScriptDocument document = parser.parse(yaml);
 
         ScriptSchemaValidationException ex = assertThrows(
                 ScriptSchemaValidationException.class,
                 () -> validator.validate(document));
-        assertTrue(ex.getMessage().contains("title"));
+        assertTrue(ex.getMessage().contains("标题"));
     }
 }

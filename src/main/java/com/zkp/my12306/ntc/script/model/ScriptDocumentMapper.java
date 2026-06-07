@@ -14,6 +14,8 @@ final class ScriptDocumentMapper {
     private static final ObjectMapper YAML = new ObjectMapper(
             YAMLFactory.builder()
                     .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
+                    .enable(YAMLGenerator.Feature.LITERAL_BLOCK_STYLE)
+                    .disable(YAMLGenerator.Feature.SPLIT_LINES)
                     .build());
 
     private ScriptDocumentMapper() {

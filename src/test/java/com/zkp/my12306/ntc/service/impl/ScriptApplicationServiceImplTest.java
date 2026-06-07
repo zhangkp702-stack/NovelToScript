@@ -10,6 +10,7 @@ import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
 import com.zkp.my12306.ntc.script.input.ScriptValidationException;
 import com.zkp.my12306.ntc.script.input.ValidationErrorCode;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputException;
 import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
 import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
@@ -141,6 +142,7 @@ class ScriptApplicationServiceImplTest {
         when(characterService.listForPrompt("user1", "work-1")).thenReturn(Collections.emptyList());
         when(promptBuilder.build("作品标题", 1, "第一章", Collections.emptyList())).thenReturn("prompt");
         when(objectMapper.writeValueAsString(any())).thenReturn("{\"workId\":\"work-1\"}");
+        when(outputParser.parse(anyString())).thenThrow(new ScriptOutputException("mock"));
         StreamCancellationHandle handle = mock(StreamCancellationHandle.class);
         doAnswer(invocation -> {
             StreamCallback callback = invocation.getArgument(1);

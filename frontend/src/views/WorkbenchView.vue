@@ -71,6 +71,88 @@ function createEmptyCharacterForm() {
   };
 }
 
+function createScriptVersion({
+  kind = "generate",
+  label = "初稿",
+  instruction = "",
+  content = "",
+  status = "idle",
+  collapsed = false
+} = {}) {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    label,
+    instruction,
+    content,
+    warning: "",
+    error: "",
+    status,
+    collapsed
+  };
+}
+
+function getActiveVersion(result) {
+  if (!result?.versions?.length) {
+    return null;
+  }
+  return result.versions.find((version) => version.id === result.activeVersionId)
+    || result.versions[result.versions.length - 1];
+}
+
+function syncResultFromActiveVersion(result) {
+  const active = getActiveVersion(result);
+  if (active) {
+    result.content = active.content;
+    result.warning = active.warning;
+  }
+}
+
+function addScriptVersion(result, version, { collapseOthers = true } = {}) {
+  if (!result.versions) {
+    result.versions = [];
+  }
+  if (collapseOthers) {
+    result.versions.forEach((item) => {
+      item.collapsed = true;
+    });
+    version.collapsed = false;
+  }
+  result.versions.push(version);
+  result.activeVersionId = version.id;
+  syncResultFromActiveVersion(result);
+}
+
+function hasScriptContent(result) {
+  return Boolean(getActiveVersion(result)?.content?.trim() || result.content?.trim());
+}
+
+function nextRefineLabel(result) {
+  const count = (result.versions || []).filter((version) => version.kind === "refine").length;
+  return `改编 ${count + 1}`;
+}
+
+function setActiveVersion(chapterId, versionId) {
+  const result = ensureResult(chapterId);
+  result.activeVersionId = versionId;
+  result.versions.forEach((version) => {
+    version.collapsed = version.id !== versionId;
+  });
+  const active = getActiveVersion(result);
+  if (active) {
+    active.collapsed = false;
+  }
+  syncResultFromActiveVersion(result);
+}
+
+function toggleVersionCollapsed(chapterId, versionId) {
+  const result = ensureResult(chapterId);
+  const version = result.versions.find((item) => item.id === versionId);
+  if (version) {
+    version.collapsed = !version.collapsed;
+  }
+}
+
 function createEmptyResult() {
   return {
     content: "",
@@ -82,6 +164,8 @@ function createEmptyResult() {
     recordId: null,
     traceId: "",
     generationId: "",
+    versions: [],
+    activeVersionId: null,
     refineMessages: [],
     refineInput: ""
   };
@@ -155,6 +239,84 @@ function formatRefinePreview(message) {
   return text.length > 120 ? `${text.slice(0, 120)}...` : text;
 }
 
+function extractRefineInstruction(userContent) {
+  const marker = "修改要求：";
+  const markerIndex = userContent.indexOf(marker);
+  if (markerIndex >= 0) {
+    return userContent.slice(markerIndex + marker.length).trim().split("\n")[0];
+  }
+  return userContent.trim().slice(0, 120);
+}
+
+function extractYamlFromFirstUserMessage(userContent) {
+  const marker = "当前剧本 YAML 如下：";
+  const markerIndex = userContent.indexOf(marker);
+  if (markerIndex < 0) {
+    return "";
+  }
+  const tail = userContent.slice(markerIndex + marker.length);
+  const instructionIndex = tail.indexOf("\n\n修改要求：");
+  return sanitizeYamlDisplayText(
+    instructionIndex >= 0 ? tail.slice(0, instructionIndex) : tail
+  );
+}
+
+function rebuildVersionsFromHistory(result, messages, fallbackContent = "") {
+  const versions = [];
+  let pendingInstruction = "";
+
+  for (const message of messages) {
+    if (message.role === "user") {
+      if (message.content.includes("当前剧本 YAML 如下：")) {
+        const initialYaml = extractYamlFromFirstUserMessage(message.content);
+        if (initialYaml && !versions.length) {
+          versions.push(createScriptVersion({
+            kind: "generate",
+            label: "初稿",
+            content: initialYaml,
+            status: "done",
+            collapsed: true
+          }));
+        }
+        pendingInstruction = extractRefineInstruction(message.content);
+      } else {
+        pendingInstruction = message.content.trim();
+      }
+    } else if (message.role === "assistant" && message.content?.trim()) {
+      versions.push(createScriptVersion({
+        kind: "refine",
+        label: `改编 ${versions.filter((item) => item.kind === "refine").length + 1}`,
+        instruction: pendingInstruction,
+        content: sanitizeYamlDisplayText(message.content),
+        status: "done",
+        collapsed: true
+      }));
+      pendingInstruction = "";
+    }
+  }
+
+  if (!versions.length && fallbackContent?.trim()) {
+    versions.push(createScriptVersion({
+      kind: "generate",
+      label: "初稿",
+      content: sanitizeYamlDisplayText(fallbackContent),
+      status: "done",
+      collapsed: false
+    }));
+  }
+
+  if (!versions.length) {
+    return;
+  }
+
+  versions.forEach((version, index) => {
+    version.collapsed = index < versions.length - 1;
+  });
+  result.versions = versions;
+  result.activeVersionId = versions[versions.length - 1].id;
+  syncResultFromActiveVersion(result);
+}
+
 async function loadRefineMessages(chapterId, chapterNumber) {
   if (!workId.value) {
     return;
@@ -169,6 +331,7 @@ async function loadRefineMessages(chapterId, chapterNumber) {
       role: item.role,
       content: item.content
     }));
+    rebuildVersionsFromHistory(result, result.refineMessages, result.content);
   } catch {
     // 改编历史加载失败不阻断主流程
   }
@@ -379,14 +542,20 @@ function toggleSidebarCollapsed() {
 
 async function persistChapterResult(index, chapter) {
   const result = resultsById.value[chapter.id];
-  if (!result?.content) {
+  if (!result) {
+    return;
+  }
+  syncResultFromActiveVersion(result);
+  const active = getActiveVersion(result);
+  const scriptContent = active?.content || result?.content;
+  if (!scriptContent) {
     return;
   }
   const payload = {
     workId: workId.value || null,
     chapterNumber: index + 1,
     chapterContent: chapter.content.trim(),
-    scriptContent: result.content,
+    scriptContent,
     modelName: result.model || null,
     traceId: result.traceId || null,
     generationId: result.generationId || null
@@ -407,6 +576,138 @@ function normalizeWorkTitle(value) {
   return (value || "").trim();
 }
 
+function sanitizeYamlDisplayText(text) {
+  if (!text) {
+    return "";
+  }
+  let cleaned = text.replace(/\n*\[系统提示：[^\]]+\]\s*/g, "");
+  const fenceMatch = cleaned.match(/```(?:yaml|yml)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    cleaned = fenceMatch[1];
+  }
+  const start = cleaned.search(/^\s*文档类型\s*[:：]/m);
+  if (start > 0) {
+    cleaned = cleaned.slice(start);
+  }
+  return cleaned.replace(/```\s*$/g, "").trim();
+}
+
+function hasUnclosedDoubleQuote(line) {
+  let quoteCount = 0;
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] === '"' && line[i - 1] !== "\\") {
+      quoteCount += 1;
+    }
+  }
+  return quoteCount % 2 === 1;
+}
+
+const YAML_HANG_WRAP_EXTRA_CH = 4;
+
+const YAML_KEY_VALUE_PATTERN = /^([\w\u4e00-\u9fff_]+[:：]\s*)(.+)$/;
+const SCRIPT_BODY_HEADER_PATTERN = /^剧本正文\s*[:：]\s*(?:[|>][-+]?)?\s*$/;
+const SCRIPT_CONTENT_LINE_PATTERN = /^(旁白|动作|转场|广播声|电话声|.+视频)[:：]/;
+const SCRIPT_BODY_SIBLING_FIELD_PATTERN =
+  /^(戏剧功能|场景编号|场景标题|场景头|地点|时间|氛围|出场人物|分隔)[:：]/;
+
+function isYamlKeyValueLine(content) {
+  return YAML_KEY_VALUE_PATTERN.test(content);
+}
+
+function usesHangingWrapIndent(displayMode) {
+  return displayMode === "keyValue" || displayMode === "scriptBody";
+}
+
+function isScriptBodyContentLine(indentCh, scriptBodyIndent, content) {
+  if (scriptBodyIndent < 0) {
+    return false;
+  }
+  if (content === "") {
+    return true;
+  }
+  if (indentCh > scriptBodyIndent) {
+    return true;
+  }
+  if (SCRIPT_CONTENT_LINE_PATTERN.test(content)) {
+    return true;
+  }
+  if (/^[\w\u4e00-\u9fff_]{1,16}[:：]/.test(content)
+      && !SCRIPT_BODY_SIBLING_FIELD_PATTERN.test(content)) {
+    return true;
+  }
+  return !SCRIPT_BODY_SIBLING_FIELD_PATTERN.test(content)
+    && !/^-\s/.test(content)
+    && !/^[\w\u4e00-\u9fff_]+[:：]/.test(content);
+}
+
+function shouldExitScriptBodyBlock(indentCh, scriptBodyIndent, content) {
+  if (scriptBodyIndent < 0 || !content) {
+    return false;
+  }
+  if (indentCh < scriptBodyIndent) {
+    return true;
+  }
+  if (indentCh === scriptBodyIndent && /^-\s/.test(content)) {
+    return true;
+  }
+  return indentCh <= scriptBodyIndent && SCRIPT_BODY_SIBLING_FIELD_PATTERN.test(content);
+}
+
+function splitYamlDisplayLines(text) {
+  const sanitized = sanitizeYamlDisplayText(text);
+  if (!sanitized) {
+    return [];
+  }
+  let lastIndent = 0;
+  let inQuotedContinuation = false;
+  let scriptBodyIndent = -1;
+
+  return sanitized.split("\n").map((line) => {
+    const leading = line.match(/^[ \t]*/)?.[0] ?? "";
+    let indentCh = leading.replace(/\t/g, "  ").length;
+    const content = line.slice(leading.length);
+    let displayMode = "plain";
+
+    if (shouldExitScriptBodyBlock(indentCh, scriptBodyIndent, content)) {
+      scriptBodyIndent = -1;
+    }
+
+    if (SCRIPT_BODY_HEADER_PATTERN.test(content)) {
+      scriptBodyIndent = indentCh;
+      lastIndent = indentCh;
+      inQuotedContinuation = false;
+      displayMode = "keyValue";
+    } else if (isScriptBodyContentLine(indentCh, scriptBodyIndent, content)) {
+      if (content === "" && indentCh <= scriptBodyIndent) {
+        indentCh = scriptBodyIndent + YAML_HANG_WRAP_EXTRA_CH;
+      }
+      lastIndent = indentCh;
+      inQuotedContinuation = hasUnclosedDoubleQuote(content);
+      displayMode = "scriptBody";
+    } else if (isYamlKeyValueLine(content)) {
+      lastIndent = indentCh;
+      inQuotedContinuation = hasUnclosedDoubleQuote(content);
+      displayMode = "keyValue";
+    } else if (indentCh === 0 && inQuotedContinuation && lastIndent > 0) {
+      indentCh = lastIndent + YAML_HANG_WRAP_EXTRA_CH;
+      displayMode = "valueContinuation";
+      inQuotedContinuation = hasUnclosedDoubleQuote(content);
+    } else {
+      if (indentCh > 0) {
+        lastIndent = indentCh;
+      }
+      inQuotedContinuation = hasUnclosedDoubleQuote(content);
+    }
+
+    return {
+      indentCh,
+      wrapIndentCh: indentCh + YAML_HANG_WRAP_EXTRA_CH,
+      displayMode,
+      text: content
+    };
+  });
+}
+
 function displayWorkTitle(workTitle) {
   const normalized = normalizeWorkTitle(workTitle);
   if (!normalized || normalized === "未命名作品") {
@@ -422,20 +723,30 @@ function applyRecords(records) {
     content: record.chapterContent || ""
   }));
   resultsById.value = Object.fromEntries(
-    chapterItems.value.map((item, idx) => [
-      item.id,
-      {
-        content: sorted[idx].scriptContent || "",
-        model: sorted[idx].modelName || "",
-        status: "done",
-        error: "",
-        warning: "",
-        saved: true,
-        recordId: sorted[idx].id,
-        traceId: sorted[idx].traceId || "",
-        generationId: sorted[idx].generationId || ""
+    chapterItems.value.map((item, idx) => {
+      const scriptContent = sorted[idx].scriptContent || "";
+      const result = createEmptyResult();
+      if (scriptContent.trim()) {
+        addScriptVersion(
+          result,
+          createScriptVersion({
+            kind: "generate",
+            label: "初稿",
+            content: sanitizeYamlDisplayText(scriptContent),
+            status: "done",
+            collapsed: false
+          }),
+          { collapseOthers: false }
+        );
       }
-    ])
+      result.model = sorted[idx].modelName || "";
+      result.status = "done";
+      result.saved = true;
+      result.recordId = sorted[idx].id;
+      result.traceId = sorted[idx].traceId || "";
+      result.generationId = sorted[idx].generationId || "";
+      return [item.id, result];
+    })
   );
   return sorted.length;
 }
@@ -845,11 +1156,13 @@ function onRemoveChapter(index) {
 
 async function copyChapterResult(id) {
   const result = resultsById.value[id];
-  if (!result?.content) {
+  const active = getActiveVersion(result);
+  const content = active?.content || result?.content;
+  if (!content) {
     return;
   }
   try {
-    await navigator.clipboard.writeText(result.content);
+    await navigator.clipboard.writeText(content);
     showNotice("success", "本章结果已复制到剪贴板");
   } catch (error) {
     showNotice("error", `复制失败：${error.message}`);
@@ -889,7 +1202,8 @@ async function onRefineChapter(index) {
     showNotice("error", "请输入修改要求");
     return;
   }
-  if (!result.content?.trim()) {
+  const baseVersion = getActiveVersion(result);
+  if (!baseVersion?.content?.trim()) {
     showNotice("error", "请先生成或加载本章剧本，再继续改编");
     return;
   }
@@ -902,8 +1216,15 @@ async function onRefineChapter(index) {
   streamControllers.set(chapter.id, controller);
 
   const chapterNumber = index + 1;
+  const refineVersion = createScriptVersion({
+    kind: "refine",
+    label: nextRefineLabel(result),
+    instruction,
+    status: "streaming"
+  });
+  addScriptVersion(result, refineVersion);
+
   result.error = "";
-  result.warning = "";
   result.saved = false;
   result.generationId = crypto.randomUUID();
   setRefining(chapter.id, true);
@@ -914,7 +1235,7 @@ async function onRefineChapter(index) {
       generationId: result.generationId,
       chapterNumber,
       instruction,
-      currentScriptContent: result.content.trim()
+      currentScriptContent: baseVersion.content.trim()
     };
 
     const { response, payload: errorPayload } = await refineScriptStream(
@@ -922,7 +1243,6 @@ async function onRefineChapter(index) {
       {
         onOpen(modelName) {
           result.model = modelName;
-          result.content = "";
         },
         onMeta(metaJson) {
           try {
@@ -938,13 +1258,30 @@ async function onRefineChapter(index) {
           }
         },
         onToken(token) {
-          result.content += token || "";
+          refineVersion.content += token || "";
+          syncResultFromActiveVersion(result);
+          scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          result.warning = message;
+          refineVersion.warning = message;
+          syncResultFromActiveVersion(result);
+        },
+        onArtifact(yamlText) {
+          if (yamlText) {
+            refineVersion.content = yamlText;
+            syncResultFromActiveVersion(result);
+          }
+        },
+        onDone() {
+          refineVersion.content = sanitizeYamlDisplayText(refineVersion.content);
+          refineVersion.status = "done";
+          result.status = "done";
+          syncResultFromActiveVersion(result);
         },
         onError(message) {
-          result.error = message || "改编失败";
+          refineVersion.error = message || "改编失败";
+          refineVersion.status = "error";
+          result.error = refineVersion.error;
         }
       },
       controller.signal
@@ -954,6 +1291,9 @@ async function onRefineChapter(index) {
       const message = typeof errorPayload === "object" && errorPayload?.message
         ? errorPayload.message
         : `改编失败（HTTP ${response.status}）`;
+      refineVersion.status = "error";
+      refineVersion.error = message;
+      result.status = "error";
       result.error = message;
       showNotice("error", message);
       return;
@@ -963,11 +1303,21 @@ async function onRefineChapter(index) {
       result.status = "done";
       result.refineInput = "";
       await loadRefineMessages(chapter.id, chapterNumber);
-      await persistChapterResult(index, chapter);
+      if (hasScriptContent(result)) {
+        await persistChapterResult(index, chapter);
+      }
       showNotice("success", `第 ${chapterNumber} 章改编完成`);
     }
   } catch (error) {
-    if (error.name !== "AbortError") {
+    if (error.name === "AbortError") {
+      if (refineVersion.status === "streaming") {
+        refineVersion.status = "cancelled";
+        result.status = "cancelled";
+      }
+    } else {
+      refineVersion.status = "error";
+      refineVersion.error = error.message;
+      result.status = "error";
       result.error = error.message;
       showNotice("error", `改编失败：${error.message}`);
     }
@@ -997,7 +1347,14 @@ async function onGenerateChapter(index) {
   streamControllers.set(chapter.id, controller);
 
   const result = ensureResult(chapter.id);
-  result.content = "";
+  const generateVersion = createScriptVersion({
+    kind: "generate",
+    label: "初稿",
+    status: "streaming"
+  });
+  result.versions = [];
+  addScriptVersion(result, generateVersion);
+
   result.model = "";
   result.error = "";
   result.warning = "";
@@ -1039,16 +1396,29 @@ async function onGenerateChapter(index) {
           }
         },
         onToken(token) {
-          result.content += token;
+          generateVersion.content += token;
+          syncResultFromActiveVersion(result);
           scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          result.warning = message;
+          generateVersion.warning = message;
+          syncResultFromActiveVersion(result);
+        },
+        onArtifact(yamlText) {
+          if (yamlText) {
+            generateVersion.content = yamlText;
+            syncResultFromActiveVersion(result);
+          }
         },
         onDone() {
+          generateVersion.content = sanitizeYamlDisplayText(generateVersion.content);
+          generateVersion.status = "done";
           result.status = "done";
+          syncResultFromActiveVersion(result);
         },
         onError(message) {
+          generateVersion.status = "error";
+          generateVersion.error = message;
           result.status = "error";
           result.error = message;
         }
@@ -1069,17 +1439,20 @@ async function onGenerateChapter(index) {
         : `请求失败（HTTP ${response.status}）`;
       result.status = "error";
       result.error = message;
-    } else if (result.status === "done" && result.content) {
+    } else if (result.status === "done" && hasScriptContent(result)) {
       await persistChapterResult(index, chapter);
     }
   } catch (error) {
     if (error.name === "AbortError") {
       if (result.status === "streaming") {
         result.status = "cancelled";
+        generateVersion.status = "cancelled";
       }
     } else {
       result.status = "error";
       result.error = error.message;
+      generateVersion.status = "error";
+      generateVersion.error = error.message;
     }
   } finally {
     setStreaming(chapter.id, false);
@@ -1254,7 +1627,7 @@ async function onGenerateChapter(index) {
                 <button
                   type="button"
                   class="copy-result-btn"
-                  :disabled="!resultsById[chapter.id]?.content"
+                  :disabled="!hasScriptContent(resultsById[chapter.id])"
                   @click="copyChapterResult(chapter.id)"
                 >
                   复制
@@ -1268,7 +1641,7 @@ async function onGenerateChapter(index) {
                 · trace：{{ resultsById[chapter.id].traceId }}
               </template>
             </p>
-            <p v-else-if="streamingIds.has(chapter.id)" class="result-meta">等待模型响应...</p>
+            <p v-else-if="streamingIds.has(chapter.id) || refiningIds.has(chapter.id)" class="result-meta">等待模型响应...</p>
 
             <p
               v-if="resultsById[chapter.id]?.error"
@@ -1276,42 +1649,95 @@ async function onGenerateChapter(index) {
             >
               {{ resultsById[chapter.id].error }}
             </p>
-            <p
-              v-if="resultsById[chapter.id]?.warning"
-              class="chapter-warning"
-            >
-              结构提示：{{ resultsById[chapter.id].warning }}
-            </p>
-
-            <pre
+            <div
               :ref="(el) => { if (el) resultPanelRefs[chapter.id] = el; }"
-              class="result-content"
-              :class="{
-                streaming: streamingIds.has(chapter.id) || refiningIds.has(chapter.id),
-                empty: !resultsById[chapter.id]?.content && !streamingIds.has(chapter.id) && !refiningIds.has(chapter.id)
-              }"
-            >{{ resultsById[chapter.id]?.content || (streamingIds.has(chapter.id) || refiningIds.has(chapter.id) ? '' : '本章生成结果将在这里展示') }}<span v-if="streamingIds.has(chapter.id) || refiningIds.has(chapter.id)" class="stream-cursor">▋</span></pre>
+              class="version-list"
+            >
+              <p
+                v-if="!resultsById[chapter.id]?.versions?.length && !streamingIds.has(chapter.id) && !refiningIds.has(chapter.id)"
+                class="version-empty"
+              >
+                本章生成结果将在这里展示
+              </p>
+
+              <section
+                v-for="version in resultsById[chapter.id]?.versions || []"
+                :key="version.id"
+                class="version-card"
+                :class="{
+                  active: version.id === resultsById[chapter.id]?.activeVersionId,
+                  collapsed: version.collapsed,
+                  streaming: version.status === 'streaming'
+                }"
+              >
+                <header class="version-card-header">
+                  <button
+                    type="button"
+                    class="version-toggle-btn"
+                    @click="toggleVersionCollapsed(chapter.id, version.id)"
+                  >
+                    <span class="version-toggle-icon">{{ version.collapsed ? '▸' : '▾' }}</span>
+                    <span class="version-badge" :data-kind="version.kind">{{ version.label }}</span>
+                    <span v-if="version.id === resultsById[chapter.id]?.activeVersionId" class="version-active-tag">当前使用</span>
+                  </button>
+                  <div class="version-card-meta">
+                    <span v-if="version.instruction" class="version-instruction">「{{ version.instruction }}」</span>
+                    <span v-if="version.content" class="version-size">{{ version.content.length }} 字</span>
+                  </div>
+                  <div class="version-card-actions">
+                    <button
+                      v-if="version.id !== resultsById[chapter.id]?.activeVersionId && version.content"
+                      type="button"
+                      class="version-use-btn"
+                      @click="setActiveVersion(chapter.id, version.id)"
+                    >
+                      使用此版本
+                    </button>
+                  </div>
+                </header>
+
+                <div v-show="!version.collapsed" class="version-card-body">
+                  <p v-if="version.warning" class="chapter-warning version-warning">
+                    结构提示：{{ version.warning }}
+                  </p>
+                  <p v-if="version.error" class="chapter-error version-error">
+                    {{ version.error }}
+                  </p>
+                  <pre
+                    class="result-content"
+                    :class="{ streaming: version.status === 'streaming' }"
+                  >
+                    <template v-if="version.content">
+                      <span
+                        v-for="(line, lineIndex) in splitYamlDisplayLines(version.content)"
+                        :key="lineIndex"
+                        class="yaml-line"
+                        :class="{
+                          'yaml-line-kv': usesHangingWrapIndent(line.displayMode),
+                          'yaml-line-value-continuation': line.displayMode === 'valueContinuation'
+                        }"
+                        :style="usesHangingWrapIndent(line.displayMode)
+                          ? {
+                              paddingLeft: `${line.wrapIndentCh}ch`,
+                              textIndent: `-${YAML_HANG_WRAP_EXTRA_CH}ch`
+                            }
+                          : { paddingLeft: `${line.indentCh}ch` }"
+                      >{{ line.text }}</span>
+                    </template>
+                    <span v-if="version.status === 'streaming'" class="stream-cursor">▋</span>
+                  </pre>
+                </div>
+              </section>
+            </div>
 
             <section
-              v-if="resultsById[chapter.id]?.content || resultsById[chapter.id]?.refineMessages?.length"
+              v-if="hasScriptContent(resultsById[chapter.id]) || resultsById[chapter.id]?.versions?.length"
               class="refine-panel"
             >
-              <h4 class="refine-panel-title">改编对话</h4>
-              <p class="refine-panel-hint">基于当前剧本用自然语言提出修改，无需整章重生成。</p>
-              <div
-                v-if="resultsById[chapter.id]?.refineMessages?.length"
-                class="refine-history"
-              >
-                <div
-                  v-for="(message, messageIndex) in resultsById[chapter.id].refineMessages"
-                  :key="messageIndex"
-                  class="refine-message"
-                  :data-role="message.role"
-                >
-                  <span class="refine-role">{{ message.role === 'user' ? '你' : 'AI' }}</span>
-                  <span class="refine-text">{{ formatRefinePreview(message) }}</span>
-                </div>
-              </div>
+              <h4 class="refine-panel-title">继续改编</h4>
+              <p class="refine-panel-hint">
+                每次改编会保留旧版本并新开一个结果框；不满意时可展开旧版本并点击「使用此版本」。
+              </p>
               <div class="refine-input-row">
                 <input
                   v-model="resultsById[chapter.id].refineInput"
@@ -1324,7 +1750,7 @@ async function onGenerateChapter(index) {
                 <button
                   type="button"
                   class="refine-submit-btn"
-                  :disabled="!workId || !resultsById[chapter.id]?.content || streamingIds.has(chapter.id) || refiningIds.has(chapter.id)"
+                  :disabled="!workId || !hasScriptContent(resultsById[chapter.id]) || streamingIds.has(chapter.id) || refiningIds.has(chapter.id)"
                   @click="onRefineChapter(index)"
                 >
                   继续改编

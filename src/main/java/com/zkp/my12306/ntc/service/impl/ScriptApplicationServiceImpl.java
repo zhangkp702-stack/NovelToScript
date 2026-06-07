@@ -12,11 +12,13 @@ import com.zkp.my12306.ntc.llm.trace.LlmTraceContext;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
 import com.zkp.my12306.ntc.script.model.ScriptDocument;
-import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputException;
 import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidationException;
 import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
+import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.service.CharacterService;
@@ -149,6 +151,13 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
             }
 
             @Override
+            public void onWarn(String message) {
+                if (message != null && !message.isBlank()) {
+                    sendSseEvent(emitter, "warn", message);
+                }
+            }
+
+            @Override
             public void onComplete() {
                 if (!streamFinished.compareAndSet(false, true)) {
                     return;
@@ -158,7 +167,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                         workId,
                         chapterRequest.chapterNumber(),
                         accumulated.length());
-                emitStructureWarningIfNeeded(emitter, accumulated.toString());
+                emitStreamCompletionFeedback(emitter, accumulated.toString());
                 sendSseEvent(emitter, "done", "");
                 emitter.complete();
             }
@@ -212,20 +221,36 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
         }
     }
 
-    private void emitStructureWarningIfNeeded(SseEmitter emitter, String content) {
+    private void emitStreamCompletionFeedback(SseEmitter emitter, String content) {
         if (content == null || content.isBlank()) {
             return;
         }
         try {
-            if (NaturalScriptFormat.looksLikeNaturalScript(content)) {
-                String error = NaturalScriptFormat.validateStructure(content);
-                if (error != null) {
-                    sendSseEvent(emitter, "warn", error);
-                }
+            ScriptDocument document = outputParser.parse(content);
+            if (document == null || document.root() == null) {
+                sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
+                return;
             }
-        } catch (RuntimeException ignored) {
-            // 轻量校验失败不影响已生成内容的交付
+            if (isNaturalScriptDocument(document)) {
+                sendSseEvent(emitter, "warn", "输出未采用 YAML 格式，请换用更强模型后重试");
+                return;
+            }
+            schemaValidator.validateChapterFragment(document);
+            sendSseEvent(emitter, "artifact", document.toYaml());
+        } catch (ScriptSchemaValidationException ex) {
+            sendSseEvent(emitter, "warn", "YAML 结构校验未通过：" + ex.getMessage());
+        } catch (ScriptOutputException ex) {
+            sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
+        } catch (RuntimeException ex) {
+            log.warn("流式完成后的 YAML 处理失败", ex);
+            sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
         }
+    }
+
+    private boolean isNaturalScriptDocument(ScriptDocument document) {
+        return document != null
+                && document.root() != null
+                && "natural_script".equals(document.root().path("format").asText());
     }
 
     private void sendSseEvent(SseEmitter emitter, String eventName, String data) {

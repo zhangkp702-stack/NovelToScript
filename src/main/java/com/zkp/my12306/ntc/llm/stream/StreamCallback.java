@@ -17,6 +17,9 @@ public interface StreamCallback {
     default void onComplete() {
     }
 
+    default void onWarn(String message) {
+    }
+
     default void onError(Throwable throwable) {
     }
 }

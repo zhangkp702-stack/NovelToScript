@@ -16,6 +16,7 @@ public class ScriptRefinePromptBuilder {
     private static final String TITLE_PLACEHOLDER = "{{作品标题}}";
     private static final String CHAPTER_NUMBER_PLACEHOLDER = "{{章节编号}}";
     private static final String CHARACTER_SETTINGS_PLACEHOLDER = "{{人物设定}}";
+    private static final String YAML_SAMPLE_PLACEHOLDER = "{{YAML样例}}";
 
     private final String templateText;
     private final ScriptPromptBuilder scriptPromptBuilder;
@@ -28,16 +29,18 @@ public class ScriptRefinePromptBuilder {
     public String buildSystemPrompt(String title, int chapterNumber, List<CharacterPromptItem> characters) {
         String resolvedTitle = title == null || title.isBlank() ? "未命名作品" : title.trim();
         return templateText
+                .replace(YAML_SAMPLE_PLACEHOLDER, scriptPromptBuilder.yamlSampleText())
                 .replace(TITLE_PLACEHOLDER, resolvedTitle)
                 .replace(CHAPTER_NUMBER_PLACEHOLDER, String.valueOf(chapterNumber))
                 .replace(CHARACTER_SETTINGS_PLACEHOLDER, scriptPromptBuilder.formatCharacterSettings(characters));
     }
 
     public String buildFirstUserMessage(String currentScriptContent, String instruction) {
-        return "当前剧本如下：\n"
+        return "当前剧本 YAML 如下：\n"
                 + currentScriptContent.trim()
                 + "\n\n修改要求：\n"
-                + instruction.trim();
+                + instruction.trim()
+                + "\n\n请输出修订后的完整中文 YAML。";
     }
 
     private String loadResource(String path) {
