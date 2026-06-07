@@ -19,7 +19,7 @@ public class BufferedProbeCallback implements StreamCallback {
     @Override
     public synchronized void onOpen(String modelName) {
         this.modelName = modelName;
-        if (promoted && !openSent) {
+        if (!openSent) {
             downstream.onOpen(modelName);
             openSent = true;
         }
