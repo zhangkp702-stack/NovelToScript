@@ -101,6 +101,17 @@ function getActiveVersion(result) {
     || result.versions[result.versions.length - 1];
 }
 
+function patchActiveVersion(chapterId, patch) {
+  const result = ensureResult(chapterId);
+  const version = getActiveVersion(result);
+  if (!version) {
+    return null;
+  }
+  patch(version, result);
+  syncResultFromActiveVersion(result);
+  return version;
+}
+
 function syncResultFromActiveVersion(result) {
   const active = getActiveVersion(result);
   if (active) {
@@ -1278,30 +1289,29 @@ async function onRefineChapter(index) {
           }
         },
         onToken(token) {
-          refineVersion.content += token || "";
-          syncResultFromActiveVersion(result);
+          patchActiveVersion(chapter.id, (version) => {
+            version.content += token || "";
+          });
           scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          refineVersion.warning = message;
-          syncResultFromActiveVersion(result);
-        },
-        onArtifact(yamlText) {
-          if (yamlText) {
-            refineVersion.content = yamlText;
-            syncResultFromActiveVersion(result);
-          }
+          patchActiveVersion(chapter.id, (version) => {
+            version.warning = message;
+          });
         },
         onDone() {
-          refineVersion.content = sanitizeYamlDisplayText(refineVersion.content);
-          refineVersion.status = "done";
+          patchActiveVersion(chapter.id, (version) => {
+            version.content = sanitizeYamlDisplayText(version.content);
+            version.status = "done";
+          });
           result.status = "done";
-          syncResultFromActiveVersion(result);
         },
         onError(message) {
-          refineVersion.error = message || "改编失败";
-          refineVersion.status = "error";
-          result.error = refineVersion.error;
+          patchActiveVersion(chapter.id, (version) => {
+            version.error = message || "改编失败";
+            version.status = "error";
+          });
+          result.error = message || "改编失败";
         }
       },
       controller.signal
@@ -1311,8 +1321,10 @@ async function onRefineChapter(index) {
       const message = typeof errorPayload === "object" && errorPayload?.message
         ? errorPayload.message
         : `改编失败（HTTP ${response.status}）`;
-      refineVersion.status = "error";
-      refineVersion.error = message;
+      patchActiveVersion(chapter.id, (version) => {
+        version.status = "error";
+        version.error = message;
+      });
       result.status = "error";
       result.error = message;
       showNotice("error", message);
@@ -1330,13 +1342,19 @@ async function onRefineChapter(index) {
     }
   } catch (error) {
     if (error.name === "AbortError") {
-      if (refineVersion.status === "streaming") {
-        refineVersion.status = "cancelled";
+      patchActiveVersion(chapter.id, (version) => {
+        if (version.status === "streaming") {
+          version.status = "cancelled";
+        }
+      });
+      if (result.status === "streaming") {
         result.status = "cancelled";
       }
     } else {
-      refineVersion.status = "error";
-      refineVersion.error = error.message;
+      patchActiveVersion(chapter.id, (version) => {
+        version.status = "error";
+        version.error = error.message;
+      });
       result.status = "error";
       result.error = error.message;
       showNotice("error", `改编失败：${error.message}`);
@@ -1423,29 +1441,28 @@ async function onGenerateChapter(index) {
           }
         },
         onToken(token) {
-          generateVersion.content += token;
-          syncResultFromActiveVersion(result);
+          patchActiveVersion(chapter.id, (version) => {
+            version.content += token;
+          });
           scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          generateVersion.warning = message;
-          syncResultFromActiveVersion(result);
-        },
-        onArtifact(yamlText) {
-          if (yamlText) {
-            generateVersion.content = yamlText;
-            syncResultFromActiveVersion(result);
-          }
+          patchActiveVersion(chapter.id, (version) => {
+            version.warning = message;
+          });
         },
         onDone() {
-          generateVersion.content = sanitizeYamlDisplayText(generateVersion.content);
-          generateVersion.status = "done";
+          patchActiveVersion(chapter.id, (version) => {
+            version.content = sanitizeYamlDisplayText(version.content);
+            version.status = "done";
+          });
           result.status = "done";
-          syncResultFromActiveVersion(result);
         },
         onError(message) {
-          generateVersion.status = "error";
-          generateVersion.error = message;
+          patchActiveVersion(chapter.id, (version) => {
+            version.status = "error";
+            version.error = message;
+          });
           result.status = "error";
           result.error = message;
         }
@@ -1471,15 +1488,21 @@ async function onGenerateChapter(index) {
     }
   } catch (error) {
     if (error.name === "AbortError") {
+      patchActiveVersion(chapter.id, (version) => {
+        if (version.status === "streaming") {
+          version.status = "cancelled";
+        }
+      });
       if (result.status === "streaming") {
         result.status = "cancelled";
-        generateVersion.status = "cancelled";
       }
     } else {
+      patchActiveVersion(chapter.id, (version) => {
+        version.status = "error";
+        version.error = error.message;
+      });
       result.status = "error";
       result.error = error.message;
-      generateVersion.status = "error";
-      generateVersion.error = error.message;
     }
   } finally {
     setStreaming(chapter.id, false);
@@ -1595,14 +1618,26 @@ async function onGenerateChapter(index) {
             </ul>
             <p v-else class="character-empty">暂无人物设定，添加后下次生成会自动注入 prompt。</p>
 
-            <div class="character-form">
+            <form class="character-form" autocomplete="off" @submit.prevent>
               <div class="character-form-row">
                 <label for="character-name">名称</label>
-                <input id="character-name" v-model="characterForm.name" placeholder="剧本中使用的名称" />
+                <input
+                  id="character-name"
+                  v-model="characterForm.name"
+                  name="ntc-character-name"
+                  autocomplete="off"
+                  placeholder="剧本中使用的名称"
+                />
               </div>
               <div class="character-form-row">
                 <label for="character-display-name">别名</label>
-                <input id="character-display-name" v-model="characterForm.displayName" placeholder="可选" />
+                <input
+                  id="character-display-name"
+                  v-model="characterForm.displayName"
+                  name="ntc-character-display-name"
+                  autocomplete="off"
+                  placeholder="可选"
+                />
               </div>
               <div class="character-form-row">
                 <label for="character-description">身份</label>
@@ -1641,7 +1676,7 @@ async function onGenerateChapter(index) {
                   取消编辑
                 </button>
               </div>
-            </div>
+            </form>
           </template>
         </section>
 
@@ -1692,7 +1727,9 @@ async function onGenerateChapter(index) {
                 · trace：{{ resultsById[chapter.id].traceId }}
               </template>
             </p>
-            <p v-else-if="streamingIds.has(chapter.id) || refiningIds.has(chapter.id)" class="result-meta">等待模型响应...</p>
+            <p v-else-if="streamingIds.has(chapter.id) || refiningIds.has(chapter.id)" class="result-meta">
+              已连接，等待模型首包输出（大模型冷启动可能需要 10～60 秒）...
+            </p>
 
             <p
               v-if="resultsById[chapter.id]?.error"
