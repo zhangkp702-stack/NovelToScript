@@ -18,7 +18,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,14 +45,14 @@ class ScriptApplicationServiceImplTest {
 
     @Test
     void generateScript_validationFails_doesNotCallLlm() {
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", List.of("a", "b"));
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "   ");
         doThrow(new ScriptValidationException(
-                ValidationErrorCode.INSUFFICIENT_CHAPTERS,
+                ValidationErrorCode.EMPTY_CHAPTER,
                 "error",
-                3,
-                2,
-                List.of()))
-                .when(inputValidator).validate(List.of("a", "b"));
+                1,
+                0,
+                List.of(1)))
+                .when(inputValidator).validate(1, "");
 
         assertThrows(ScriptValidationException.class, () -> service.generateScript(request, "user1"));
         verify(llmService, never()).chat(anyString());
@@ -59,33 +61,15 @@ class ScriptApplicationServiceImplTest {
     @Test
     void generateScript_success_callsLlm() {
         String yaml = """
-                metadata:
-                  title: 测试
-                  source_type: novel
-                  language: zh-CN
-                  generated_at: "2026-06-05T12:00:00+08:00"
-                  schema_version: "1.0.0"
-                characters:
-                  - id: char_001
-                    name: 甲
-                    role_type: protagonist
-                    description: 主角
-                scenes:
-                  - scene_id: scene_001
-                    scene_title: 场景
-                    location: 室内
-                    time: 白天
-                    characters:
-                      - char_001
-                    action: 行动
-                    dialogues:
-                      - speaker: char_001
-                        content: 台词
-                notes:
-                  adaptation_strategy: 测试
+                剧本信息:
+                剧本标题: "测试"
+                场景列表:
+                * 场景编号: "场景一"
+                  剧本正文: |
+                  甲：台词
                 """;
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", List.of("a", "b", "c"));
-        when(promptBuilder.build("title", List.of("a", "b", "c"))).thenReturn("prompt");
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "第一章");
+        when(promptBuilder.build("title", 1, "第一章")).thenReturn("prompt");
         when(llmService.chat("prompt")).thenReturn(new ChatResult(yaml, "ollama-local"));
 
         ScriptApplicationServiceImpl realService = new ScriptApplicationServiceImpl(
@@ -97,5 +81,6 @@ class ScriptApplicationServiceImplTest {
 
         realService.generateScript(request, "user1");
         verify(llmService).chat("prompt");
+        verify(promptBuilder).build(eq("title"), eq(1), eq("第一章"));
     }
 }

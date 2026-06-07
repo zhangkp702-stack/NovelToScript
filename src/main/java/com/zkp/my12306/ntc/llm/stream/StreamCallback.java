@@ -8,6 +8,12 @@ public interface StreamCallback {
     default void onToken(String token) {
     }
 
+    /**
+     * 流已建立但尚未产出正文 token（如 reasoning 阶段）时调用，用于首包探测。
+     */
+    default void onStreamActivity() {
+    }
+
     default void onComplete() {
     }
 

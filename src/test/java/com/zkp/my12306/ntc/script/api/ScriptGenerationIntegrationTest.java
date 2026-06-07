@@ -38,11 +38,12 @@ class ScriptGenerationIntegrationTest {
 
     @Test
     @WithMockUser(username = "tester")
-    void generate_withTwoChapters_returnsValidationError() throws Exception {
+    void generate_withEmptyChapter_returnsValidationError() throws Exception {
         String body = """
                 {
                   "title": "测试",
-                  "chapters": ["第一章", "第二章"]
+                  "chapterNumber": 1,
+                  "chapterContent": "   "
                 }
                 """;
 
@@ -55,18 +56,19 @@ class ScriptGenerationIntegrationTest {
                 .getContentAsString();
 
         ValidationErrorResponseDto error = objectMapper.readValue(response, ValidationErrorResponseDto.class);
-        assertEquals("INSUFFICIENT_CHAPTERS", error.code());
-        assertEquals(3, error.minChapters());
-        assertEquals(2, error.filledCount());
+        assertEquals("EMPTY_CHAPTER", error.code());
+        assertEquals(1, error.minChapters());
+        assertEquals(0, error.filledCount());
     }
 
     @Test
     @WithMockUser(username = "tester")
-    void generate_withChapterGap_returnsValidationError() throws Exception {
+    void generate_withInvalidChapterNumber_returnsValidationError() throws Exception {
         String body = """
                 {
                   "title": "测试",
-                  "chapters": ["第一章", "", "第三章"]
+                  "chapterNumber": 0,
+                  "chapterContent": "第一章"
                 }
                 """;
 
@@ -79,7 +81,6 @@ class ScriptGenerationIntegrationTest {
                 .getContentAsString();
 
         ValidationErrorResponseDto error = objectMapper.readValue(response, ValidationErrorResponseDto.class);
-        assertEquals("CHAPTER_GAP", error.code());
-        assertEquals(2, error.invalidIndexes().get(0));
+        assertEquals("INVALID_CHAPTER_NUMBER", error.code());
     }
 }

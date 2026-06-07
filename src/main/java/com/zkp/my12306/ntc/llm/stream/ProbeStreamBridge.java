@@ -32,6 +32,12 @@ public class ProbeStreamBridge implements StreamCallback {
     }
 
     @Override
+    public void onStreamActivity() {
+        markFirstEvent(FirstEventType.TOKEN, null);
+        delegate.onStreamActivity();
+    }
+
+    @Override
     public void onComplete() {
         markFirstEvent(FirstEventType.COMPLETE, null);
         delegate.onComplete();

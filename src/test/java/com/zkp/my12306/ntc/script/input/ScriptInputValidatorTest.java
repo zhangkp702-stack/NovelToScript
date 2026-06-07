@@ -2,42 +2,33 @@ package com.zkp.my12306.ntc.script.input;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScriptInputValidatorTest {
 
     private final ScriptInputValidator validator = new ScriptInputValidator();
 
     @Test
-    void validate_threeChapters_passes() {
-        assertDoesNotThrow(() -> validator.validate(List.of("a", "b", "c")));
+    void validate_singleChapter_passes() {
+        assertDoesNotThrow(() -> validator.validate(1, "第一章内容"));
     }
 
     @Test
-    void validate_twoChapters_throwsInsufficient() {
+    void validate_emptyChapter_throwsEmptyChapter() {
         ScriptValidationException ex = assertThrows(
                 ScriptValidationException.class,
-                () -> validator.validate(List.of("a", "b")));
-        assertEquals(ValidationErrorCode.INSUFFICIENT_CHAPTERS, ex.getCode());
-        assertTrue(ex.getMessage().contains("当前已填写 2 个"));
+                () -> validator.validate(2, "  "));
+        assertEquals(ValidationErrorCode.EMPTY_CHAPTER, ex.getCode());
+        assertEquals(2, ex.getInvalidIndexes().get(0));
     }
 
     @Test
-    void validate_gapChapter_throwsGap() {
+    void validate_invalidChapterNumber_throwsInvalidNumber() {
         ScriptValidationException ex = assertThrows(
                 ScriptValidationException.class,
-                () -> validator.validate(List.of("a", "", "c")));
-        assertEquals(ValidationErrorCode.CHAPTER_GAP, ex.getCode());
-        assertEquals(List.of(2), ex.getInvalidIndexes());
-    }
-
-    @Test
-    void validate_trailingBlankIgnored() {
-        assertDoesNotThrow(() -> validator.validate(List.of("a", "b", "c", "")));
+                () -> validator.validate(0, "内容"));
+        assertEquals(ValidationErrorCode.INVALID_CHAPTER_NUMBER, ex.getCode());
     }
 }
