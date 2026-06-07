@@ -3,6 +3,7 @@ package com.zkp.my12306.ntc.controller;
 import com.zkp.my12306.ntc.dto.ErrorResponseDto;
 import com.zkp.my12306.ntc.dto.ScriptRecordResponseDto;
 import com.zkp.my12306.ntc.dto.ScriptSaveRequestDto;
+import com.zkp.my12306.ntc.dto.ScriptWorkSummaryDto;
 import com.zkp.my12306.ntc.script.record.ScriptRecordAccessDeniedException;
 import com.zkp.my12306.ntc.script.record.ScriptRecordNotFoundException;
 import com.zkp.my12306.ntc.script.record.ScriptRecordValidationException;
@@ -10,6 +11,7 @@ import com.zkp.my12306.ntc.service.ScriptRecordService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,6 +37,30 @@ public class ScriptRecordController {
         try {
             ScriptRecordResponseDto response = scriptRecordService.save(authentication.getName(), request);
             return ResponseEntity.ok(response);
+        } catch (ScriptRecordValidationException ex) {
+            return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
+        }
+    }
+
+    @GetMapping("/works")
+    public ResponseEntity<?> listWorks(Authentication authentication) {
+        try {
+            List<ScriptWorkSummaryDto> works = scriptRecordService.listWorks(authentication.getName());
+            return ResponseEntity.ok(works);
+        } catch (ScriptRecordValidationException ex) {
+            return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/works")
+    public ResponseEntity<?> deleteWork(
+            @RequestParam(value = "workTitle", required = false) String workTitle,
+            Authentication authentication) {
+        try {
+            scriptRecordService.deleteWork(authentication.getName(), workTitle);
+            return ResponseEntity.noContent().build();
+        } catch (ScriptRecordNotFoundException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponseDto(ex.getMessage()));
         } catch (ScriptRecordValidationException ex) {
             return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
         }

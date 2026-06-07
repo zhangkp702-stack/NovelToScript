@@ -3,6 +3,7 @@ package com.zkp.my12306.ntc.script.api;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.dto.ScriptRecordResponseDto;
+import com.zkp.my12306.ntc.dto.ScriptWorkSummaryDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,6 +19,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -171,5 +173,81 @@ class ScriptRecordIntegrationTest {
         assertEquals("新剧本", second.scriptContent());
         assertEquals("新内容", second.chapterContent());
         assertTrue(second.updatedAt() != null && !second.updatedAt().isBlank());
+    }
+
+    @Test
+    @WithMockUser(username = "tester")
+    void listWorks_returnsSummariesAndDeleteWork_removesRecords() throws Exception {
+        mockMvc.perform(post("/api/scripts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workTitle": "作品管理A",
+                                  "chapterNumber": 1,
+                                  "chapterContent": "第一章",
+                                  "scriptContent": "剧本A1"
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/scripts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workTitle": "作品管理A",
+                                  "chapterNumber": 2,
+                                  "chapterContent": "第二章",
+                                  "scriptContent": "剧本A2"
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/scripts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workTitle": "作品管理B",
+                                  "chapterNumber": 1,
+                                  "chapterContent": "B章",
+                                  "scriptContent": "剧本B1"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        String worksResponse = mockMvc.perform(get("/api/scripts/works"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<ScriptWorkSummaryDto> works = objectMapper.readValue(
+                worksResponse,
+                new TypeReference<List<ScriptWorkSummaryDto>>() {
+                });
+        assertTrue(works.stream().anyMatch(work -> "作品管理A".equals(work.workTitle()) && work.chapterCount() == 2));
+        assertTrue(works.stream().anyMatch(work -> "作品管理B".equals(work.workTitle()) && work.chapterCount() == 1));
+
+        mockMvc.perform(delete("/api/scripts/works").param("workTitle", "作品管理A"))
+                .andExpect(status().isNoContent());
+
+        String worksAfterDelete = mockMvc.perform(get("/api/scripts/works"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<ScriptWorkSummaryDto> remaining = objectMapper.readValue(
+                worksAfterDelete,
+                new TypeReference<List<ScriptWorkSummaryDto>>() {
+                });
+        assertTrue(remaining.stream().noneMatch(work -> "作品管理A".equals(work.workTitle())));
+        assertTrue(remaining.stream().anyMatch(work -> "作品管理B".equals(work.workTitle())));
+
+        String deletedListResponse = mockMvc.perform(get("/api/scripts").param("workTitle", "作品管理A"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<ScriptRecordResponseDto> deletedRecords = objectMapper.readValue(
+                deletedListResponse,
+                new TypeReference<List<ScriptRecordResponseDto>>() {
+                });
+        assertEquals(0, deletedRecords.size());
     }
 }

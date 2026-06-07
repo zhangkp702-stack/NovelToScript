@@ -2,13 +2,14 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { currentUser, logout } from "../api/auth";
-import { generateScriptStream, listScripts, saveScript } from "../api/script";
+import { deleteWork, generateScriptStream, listScripts, listWorks, saveScript } from "../api/script";
 import ChapterFieldList from "../components/ChapterFieldList.vue";
 import { validateChapterContent } from "../utils/chapterValidation";
 import { loadWorkbenchDraft, saveWorkbenchDraft } from "../utils/workbenchDraft";
 
 const router = useRouter();
 const title = ref("");
+const works = ref([]);
 const chapterItems = ref([createChapterItem()]);
 const resultsById = ref({});
 const notice = ref("");
@@ -141,16 +142,81 @@ async function persistChapterResult(index, chapter) {
     if (response.ok && savePayload?.id) {
       result.saved = true;
       result.recordId = savePayload.id;
+      await onRefreshWorks();
     }
   } catch {
     // 保存失败不阻断生成结果展示
   }
 }
 
-async function onLoadHistory() {
+function normalizeWorkTitle(value) {
+  return (value || "").trim();
+}
+
+function displayWorkTitle(workTitle) {
+  return normalizeWorkTitle(workTitle) || "未命名作品";
+}
+
+function isActiveWork(work) {
+  return normalizeWorkTitle(work?.workTitle) === normalizeWorkTitle(title.value);
+}
+
+function applyRecords(records) {
+  const sorted = [...records].sort((a, b) => a.chapterNumber - b.chapterNumber);
+  chapterItems.value = sorted.map((record) => ({
+    id: crypto.randomUUID(),
+    content: record.chapterContent || ""
+  }));
+  resultsById.value = Object.fromEntries(
+    chapterItems.value.map((item, idx) => [
+      item.id,
+      {
+        content: sorted[idx].scriptContent || "",
+        model: sorted[idx].modelName || "",
+        status: "done",
+        error: "",
+        warning: "",
+        saved: true,
+        recordId: sorted[idx].id
+      }
+    ])
+  );
+  return sorted.length;
+}
+
+function resetWorkbenchForNewWork() {
+  title.value = "";
+  chapterItems.value = [createChapterItem()];
+  resultsById.value = {};
+  persistDraft();
+}
+
+async function onRefreshWorks() {
+  try {
+    const { response, payload } = await listWorks();
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `作品列表加载失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    works.value = Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    showNotice("error", `作品列表加载失败：${error.message}`);
+  }
+}
+
+async function onLoadHistory(workTitle = title.value) {
   loading.value = true;
   try {
-    const { response, payload } = await listScripts(title.value.trim());
+    const normalizedTitle = normalizeWorkTitle(workTitle);
+    const { response, payload } = await listScripts(normalizedTitle);
     if (response.status === 401) {
       showNotice("error", "登录已过期，请重新登录");
       router.push("/login");
@@ -164,31 +230,62 @@ async function onLoadHistory() {
       return;
     }
     if (!Array.isArray(payload) || payload.length === 0) {
-      showNotice("info", "当前作品标题下暂无历史记录");
+      showNotice("info", `${displayWorkTitle(normalizedTitle)} 暂无历史记录`);
       return;
     }
-    const sorted = [...payload].sort((a, b) => a.chapterNumber - b.chapterNumber);
-    chapterItems.value = sorted.map((record) => ({
-      id: crypto.randomUUID(),
-      content: record.chapterContent || ""
-    }));
-    resultsById.value = Object.fromEntries(
-      chapterItems.value.map((item, idx) => [
-        item.id,
-        {
-          content: sorted[idx].scriptContent || "",
-          model: sorted[idx].modelName || "",
-          status: "done",
-          error: "",
-          warning: "",
-          saved: true,
-          recordId: sorted[idx].id
-        }
-      ])
-    );
-    showNotice("success", `已加载 ${sorted.length} 章历史记录`);
+    title.value = normalizedTitle;
+    const count = applyRecords(payload);
+    showNotice("success", `已加载 ${displayWorkTitle(normalizedTitle)} 的 ${count} 章历史记录`);
   } catch (error) {
     showNotice("error", `加载历史失败：${error.message}`);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onSelectWork(work) {
+  if (!work) {
+    return;
+  }
+  await onLoadHistory(work.workTitle ?? "");
+}
+
+function onNewWork() {
+  resetWorkbenchForNewWork();
+  showNotice("info", "已切换到新作品，请填写标题后开始创作");
+}
+
+async function onDeleteWork() {
+  const workTitle = normalizeWorkTitle(title.value);
+  const label = displayWorkTitle(workTitle);
+  if (!window.confirm(`确定删除作品「${label}」的全部章节记录吗？`)) {
+    return;
+  }
+  loading.value = true;
+  try {
+    const { response, payload } = await deleteWork(workTitle);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (response.status === 404) {
+      showNotice("info", `${label} 暂无可删除记录`);
+      await onRefreshWorks();
+      return;
+    }
+    if (!response.ok && response.status !== 204) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `删除失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    resetWorkbenchForNewWork();
+    await onRefreshWorks();
+    showNotice("success", `已删除作品「${label}」`);
+  } catch (error) {
+    showNotice("error", `删除作品失败：${error.message}`);
   } finally {
     loading.value = false;
   }
@@ -200,8 +297,9 @@ function handleBeforeUnload() {
   persistDraft();
 }
 
-onMounted(() => {
+onMounted(async () => {
   restoreDraft();
+  await onRefreshWorks();
   window.addEventListener("beforeunload", handleBeforeUnload);
 });
 
@@ -424,11 +522,42 @@ async function onGenerateChapter(index) {
       <div class="workbench-panel input-panel">
         <h2>用户提交</h2>
 
+        <section class="work-manager">
+          <div class="work-manager-header">
+            <h3>我的作品</h3>
+            <button type="button" class="secondary work-action-btn" :disabled="loading" @click="onRefreshWorks">
+              刷新
+            </button>
+          </div>
+          <p v-if="works.length === 0" class="work-empty">暂无已保存作品，生成后会出现在这里。</p>
+          <ul v-else class="work-list">
+            <li
+              v-for="work in works"
+              :key="work.workTitle ?? '__untitled__'"
+              class="work-list-item"
+              :class="{ active: isActiveWork(work) }"
+            >
+              <button type="button" class="work-select-btn" :disabled="loading" @click="onSelectWork(work)">
+                <span class="work-select-title">{{ work.displayTitle || displayWorkTitle(work.workTitle) }}</span>
+                <span class="work-select-meta">{{ work.chapterCount }} 章</span>
+              </button>
+            </li>
+          </ul>
+          <div class="work-manager-actions">
+            <button type="button" class="secondary work-action-btn" :disabled="loading" @click="onNewWork">
+              新建作品
+            </button>
+            <button type="button" class="work-delete-btn" :disabled="loading" @click="onDeleteWork">
+              删除当前作品
+            </button>
+          </div>
+        </section>
+
         <div class="field work-title-field">
           <label for="title">作品标题（可选）</label>
           <div class="work-title-row">
             <input id="title" v-model="title" placeholder="请输入作品标题" />
-            <button type="button" class="secondary load-history-btn" :disabled="loading" @click="onLoadHistory">
+            <button type="button" class="secondary load-history-btn" :disabled="loading" @click="onLoadHistory()">
               加载历史
             </button>
           </div>
