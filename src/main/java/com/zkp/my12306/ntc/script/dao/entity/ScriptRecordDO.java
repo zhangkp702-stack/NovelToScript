@@ -14,12 +14,15 @@ public class ScriptRecordDO {
     @TableId(type = IdType.INPUT)
     private Long id;
     private String userId;
+    private String workId;
     private String workTitle;
     private Integer chapterNumber;
     private String chapterContent;
     private String chapterContentHash;
     private String scriptContent;
     private String modelName;
+    private String traceId;
+    private String generationId;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     @TableLogic
@@ -40,6 +43,14 @@ public class ScriptRecordDO {
 
     public void setUserId(String userId) {
         this.userId = userId;
+    }
+
+    public String getWorkId() {
+        return workId;
+    }
+
+    public void setWorkId(String workId) {
+        this.workId = workId;
     }
 
     public String getWorkTitle() {
@@ -88,6 +99,22 @@ public class ScriptRecordDO {
 
     public void setModelName(String modelName) {
         this.modelName = modelName;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getGenerationId() {
+        return generationId;
+    }
+
+    public void setGenerationId(String generationId) {
+        this.generationId = generationId;
     }
 
     public LocalDateTime getCreateTime() {

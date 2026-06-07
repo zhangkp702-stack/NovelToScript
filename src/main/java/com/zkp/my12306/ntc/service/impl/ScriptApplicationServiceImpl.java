@@ -1,19 +1,24 @@
 package com.zkp.my12306.ntc.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.dto.ScriptGenerateRequestDto;
 import com.zkp.my12306.ntc.dto.ScriptGenerateResponseDto;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
 import com.zkp.my12306.ntc.llm.stream.StreamCallback;
 import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandle;
+import com.zkp.my12306.ntc.llm.trace.LlmTraceContext;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
 import com.zkp.my12306.ntc.script.model.ScriptDocument;
 import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
 import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
+import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
 import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
+import com.zkp.my12306.ntc.service.CharacterService;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +28,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -37,18 +45,24 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
     private final ScriptPromptBuilder promptBuilder;
     private final ScriptOutputParser outputParser;
     private final ScriptSchemaValidator schemaValidator;
+    private final CharacterService characterService;
+    private final ObjectMapper objectMapper;
 
     public ScriptApplicationServiceImpl(
             LLMService llmService,
             ScriptInputValidator inputValidator,
             ScriptPromptBuilder promptBuilder,
             ScriptOutputParser outputParser,
-            ScriptSchemaValidator schemaValidator) {
+            ScriptSchemaValidator schemaValidator,
+            CharacterService characterService,
+            ObjectMapper objectMapper) {
         this.llmService = llmService;
         this.inputValidator = inputValidator;
         this.promptBuilder = promptBuilder;
         this.outputParser = outputParser;
         this.schemaValidator = schemaValidator;
+        this.characterService = characterService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -57,46 +71,66 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
     }
 
     @Override
-    @TraceRoot(name = "scriptGenerate")
-    public ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser) {
+    @TraceRoot(name = "scriptGenerate", conversationIdArg = "workId", taskIdArg = "generationId")
+    public ScriptGenerateResponseDto generateScript(
+            ScriptGenerateRequestDto request,
+            String workId,
+            String generationId,
+            String currentUser) {
         ChapterRequest chapterRequest = validateChapterRequest(request);
+        List<CharacterPromptItem> characters = characterService.listForPrompt(currentUser, workId);
         String prompt = promptBuilder.build(
                 chapterRequest.title(),
                 chapterRequest.chapterNumber(),
-                chapterRequest.chapterContent());
+                chapterRequest.chapterContent(),
+                characters);
         ChatResult llmResponse = llmService.chat(prompt);
         ScriptDocument document = outputParser.parse(llmResponse.content());
         schemaValidator.validate(document);
         return new ScriptGenerateResponseDto(
                 llmResponse.modelName(),
                 document.toMap(),
-                llmResponse.content());
+                llmResponse.content(),
+                LlmTraceContext.getTraceId(),
+                generationId,
+                workId);
     }
 
     @Override
-    @TraceRoot(name = "scriptGenerateStream")
-    public void streamGenerateScript(ScriptGenerateRequestDto request, String currentUser, SseEmitter emitter) {
+    @TraceRoot(name = "scriptGenerateStream", conversationIdArg = "workId", taskIdArg = "generationId")
+    public void streamGenerateScript(
+            ScriptGenerateRequestDto request,
+            String workId,
+            String generationId,
+            String currentUser,
+            SseEmitter emitter) {
         ChapterRequest chapterRequest = validateChapterRequest(request);
+        List<CharacterPromptItem> characters = characterService.listForPrompt(currentUser, workId);
         String prompt = promptBuilder.build(
                 chapterRequest.title(),
                 chapterRequest.chapterNumber(),
-                chapterRequest.chapterContent());
-        log.info("开始流式生成剧本: user={}, chapter={}, title={}, contentLength={}",
+                chapterRequest.chapterContent(),
+                characters);
+        log.info("开始流式生成剧本: user={}, workId={}, chapter={}, title={}, contentLength={}, characterCount={}",
                 currentUser,
+                workId,
                 chapterRequest.chapterNumber(),
                 chapterRequest.title() == null || chapterRequest.title().isBlank() ? "未命名作品" : chapterRequest.title(),
-                chapterRequest.chapterContent().length());
+                chapterRequest.chapterContent().length(),
+                characters.size());
 
         AtomicReference<StreamCancellationHandle> handleRef = new AtomicReference<>();
         AtomicBoolean streamFinished = new AtomicBoolean(false);
         StringBuilder accumulated = new StringBuilder();
+        String traceId = LlmTraceContext.getTraceId();
 
         StreamCallback emitterCallback = new StreamCallback() {
             @Override
             public void onOpen(String modelName) {
-                log.info("流式生成已建立连接: user={}, chapter={}, model={}",
-                        currentUser, chapterRequest.chapterNumber(), modelName);
+                log.info("流式生成已建立连接: user={}, workId={}, chapter={}, model={}",
+                        currentUser, workId, chapterRequest.chapterNumber(), modelName);
                 sendSseEvent(emitter, "open", modelName == null ? "" : modelName);
+                sendMetaEvent(emitter, workId, generationId, traceId, modelName);
             }
 
             @Override
@@ -112,8 +146,9 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 if (!streamFinished.compareAndSet(false, true)) {
                     return;
                 }
-                log.info("流式生成完成: user={}, chapter={}, outputLength={}",
+                log.info("流式生成完成: user={}, workId={}, chapter={}, outputLength={}",
                         currentUser,
+                        workId,
                         chapterRequest.chapterNumber(),
                         accumulated.length());
                 emitStructureWarningIfNeeded(emitter, accumulated.toString());
@@ -146,6 +181,19 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 cancelStream(handleRef.get(), null);
             }
         });
+    }
+
+    private void sendMetaEvent(SseEmitter emitter, String workId, String generationId, String traceId, String modelName) {
+        Map<String, String> meta = new LinkedHashMap<>();
+        meta.put("workId", workId);
+        meta.put("generationId", generationId);
+        meta.put("traceId", traceId);
+        meta.put("modelName", modelName == null ? "" : modelName);
+        try {
+            sendSseEvent(emitter, "meta", objectMapper.writeValueAsString(meta));
+        } catch (JsonProcessingException ex) {
+            log.warn("发送 meta 事件失败", ex);
+        }
     }
 
     private void cancelStream(StreamCancellationHandle handle, SseEmitter emitter) {

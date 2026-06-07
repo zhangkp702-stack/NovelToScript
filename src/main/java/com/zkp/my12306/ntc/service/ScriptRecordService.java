@@ -12,9 +12,11 @@ public interface ScriptRecordService {
 
     List<ScriptRecordResponseDto> listByWorkTitle(String currentUser, String workTitle);
 
+    List<ScriptRecordResponseDto> listByWorkId(String currentUser, String workId);
+
     List<ScriptWorkSummaryDto> listWorks(String currentUser);
 
-    void deleteWork(String currentUser, String workTitle);
+    void deleteWork(String currentUser, String workTitle, String workId);
 
     ScriptRecordResponseDto getById(String currentUser, Long id);
 }

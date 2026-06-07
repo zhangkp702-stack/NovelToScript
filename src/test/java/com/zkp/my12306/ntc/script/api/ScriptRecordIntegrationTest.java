@@ -66,6 +66,7 @@ class ScriptRecordIntegrationTest {
 
         ScriptRecordResponseDto saved = objectMapper.readValue(saveResponse, ScriptRecordResponseDto.class);
         assertEquals("雨夜归来", saved.workTitle());
+        assertTrue(saved.workId() != null && !saved.workId().isBlank());
         assertEquals(1, saved.chapterNumber());
 
         String listResponse = mockMvc.perform(get("/api/scripts")
@@ -221,7 +222,9 @@ class ScriptRecordIntegrationTest {
                 worksResponse,
                 new TypeReference<List<ScriptWorkSummaryDto>>() {
                 });
-        assertTrue(works.stream().anyMatch(work -> "作品管理A".equals(work.workTitle()) && work.chapterCount() == 2));
+        assertTrue(works.stream().anyMatch(work -> "作品管理A".equals(work.workTitle())
+                && work.workId() != null
+                && work.chapterCount() == 2));
         assertTrue(works.stream().anyMatch(work -> "作品管理B".equals(work.workTitle()) && work.chapterCount() == 1));
 
         mockMvc.perform(delete("/api/scripts/works").param("workTitle", "作品管理A"))

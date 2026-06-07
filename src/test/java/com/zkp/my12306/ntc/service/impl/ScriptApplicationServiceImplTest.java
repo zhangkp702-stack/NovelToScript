@@ -1,5 +1,6 @@
 package com.zkp.my12306.ntc.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.dto.ScriptGenerateRequestDto;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
@@ -9,7 +10,9 @@ import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
 import com.zkp.my12306.ntc.script.input.ScriptValidationException;
 import com.zkp.my12306.ntc.script.input.ValidationErrorCode;
 import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
+import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
+import com.zkp.my12306.ntc.service.CharacterService;
 import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -46,13 +50,17 @@ class ScriptApplicationServiceImplTest {
     private ScriptOutputParser outputParser;
     @Mock
     private ScriptSchemaValidator schemaValidator;
+    @Mock
+    private ObjectMapper objectMapper;
+    @Mock
+    private CharacterService characterService;
 
     @InjectMocks
     private ScriptApplicationServiceImpl service;
 
     @Test
     void generateScript_validationFails_doesNotCallLlm() {
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "   ");
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto(null, null, "title", 1, "   ");
         doThrow(new ScriptValidationException(
                 ValidationErrorCode.EMPTY_CHAPTER,
                 "error",
@@ -62,7 +70,8 @@ class ScriptApplicationServiceImplTest {
                 List.of(1)))
                 .when(inputValidator).validate(1, "");
 
-        assertThrows(ScriptValidationException.class, () -> service.generateScript(request, "user1"));
+        assertThrows(ScriptValidationException.class,
+                () -> service.generateScript(request, "work-1", "gen-1", "user1"));
         verify(llmService, never()).chat(anyString());
     }
 
@@ -76,8 +85,10 @@ class ScriptApplicationServiceImplTest {
                 剧本正文：
                 甲：台词
                 """;
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "第一章");
-        when(promptBuilder.build("title", 1, "第一章")).thenReturn("prompt");
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("work-1", "gen-1", "title", 1, "第一章");
+        List<CharacterPromptItem> characters = List.of(new CharacterPromptItem("林澈", null, "主角", null));
+        when(characterService.listForPrompt("user1", "work-1")).thenReturn(characters);
+        when(promptBuilder.build("title", 1, "第一章", characters)).thenReturn("prompt");
         when(llmService.chat("prompt")).thenReturn(new ChatResult(script, "ollama-local"));
 
         ScriptApplicationServiceImpl realService = new ScriptApplicationServiceImpl(
@@ -85,16 +96,18 @@ class ScriptApplicationServiceImplTest {
                 new ScriptInputValidator(),
                 promptBuilder,
                 new ScriptOutputParser(),
-                new ScriptSchemaValidator());
+                new ScriptSchemaValidator(),
+                characterService,
+                new ObjectMapper());
 
-        realService.generateScript(request, "user1");
+        realService.generateScript(request, "work-1", "gen-1", "user1");
         verify(llmService).chat("prompt");
-        verify(promptBuilder).build(eq("title"), eq(1), eq("第一章"));
+        verify(promptBuilder).build(eq("title"), eq(1), eq("第一章"), eq(characters));
     }
 
     @Test
     void streamGenerateScript_validationFails_doesNotCallLlm() {
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "   ");
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto(null, null, "title", 1, "   ");
         doThrow(new ScriptValidationException(
                 ValidationErrorCode.EMPTY_CHAPTER,
                 "error",
@@ -105,14 +118,16 @@ class ScriptApplicationServiceImplTest {
                 .when(inputValidator).validate(1, "");
 
         assertThrows(ScriptValidationException.class,
-                () -> service.streamGenerateScript(request, "user1", new SseEmitter()));
+                () -> service.streamGenerateScript(request, "work-1", "gen-1", "user1", new SseEmitter()));
         verify(llmService, never()).streamChat(anyString(), any());
     }
 
     @Test
-    void streamGenerateScript_success_invokesStreamCallback() {
-        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("title", 1, "第一章");
-        when(promptBuilder.build("title", 1, "第一章")).thenReturn("prompt");
+    void streamGenerateScript_success_invokesStreamCallback() throws Exception {
+        ScriptGenerateRequestDto request = new ScriptGenerateRequestDto("work-1", "gen-1", "title", 1, "第一章");
+        when(characterService.listForPrompt("user1", "work-1")).thenReturn(Collections.emptyList());
+        when(promptBuilder.build("title", 1, "第一章", Collections.emptyList())).thenReturn("prompt");
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"workId\":\"work-1\"}");
         StreamCancellationHandle handle = mock(StreamCancellationHandle.class);
         doAnswer(invocation -> {
             StreamCallback callback = invocation.getArgument(1);
@@ -124,10 +139,10 @@ class ScriptApplicationServiceImplTest {
         }).when(llmService).streamChat(eq("prompt"), any(StreamCallback.class));
 
         SseEmitter emitter = new SseEmitter(5_000L);
-        assertDoesNotThrow(() -> service.streamGenerateScript(request, "user1", emitter));
+        assertDoesNotThrow(() -> service.streamGenerateScript(request, "work-1", "gen-1", "user1", emitter));
 
         ArgumentCaptor<StreamCallback> callbackCaptor = ArgumentCaptor.forClass(StreamCallback.class);
         verify(llmService).streamChat(eq("prompt"), callbackCaptor.capture());
-        verify(promptBuilder).build(eq("title"), eq(1), eq("第一章"));
+        verify(promptBuilder).build(eq("title"), eq(1), eq("第一章"), eq(Collections.emptyList()));
     }
 }

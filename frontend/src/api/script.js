@@ -75,13 +75,75 @@ export function listWorks() {
   return request("/api/scripts/works", "GET");
 }
 
-export function deleteWork(workTitle = "") {
+export function createWork(title = "") {
+  return request("/api/scripts/works", "POST", { title });
+}
+
+export function generateWorkTitle(workId, novelExcerpt) {
+  return request(`/api/scripts/works/${encodeURIComponent(workId)}/title/generate`, "POST", {
+    novelExcerpt
+  });
+}
+
+export function updateWorkTitle(workId, title = "") {
+  return request(`/api/scripts/works/${encodeURIComponent(workId)}/title`, "PUT", { title });
+}
+
+export function deleteWork({ workTitle = "", workId = "" } = {}) {
   const query = new URLSearchParams();
   if (workTitle) {
     query.set("workTitle", workTitle);
   }
+  if (workId) {
+    query.set("workId", workId);
+  }
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request(`/api/scripts/works${suffix}`, "DELETE");
+}
+
+export function listScriptsByWorkId(workId = "") {
+  const query = new URLSearchParams();
+  if (workId) {
+    query.set("workId", workId);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/api/scripts${suffix}`, "GET");
+}
+
+export function getRecordTrace(recordId) {
+  return request(`/api/scripts/${recordId}/trace`, "GET");
+}
+
+export function listTraces(workId = "") {
+  const query = new URLSearchParams();
+  if (workId) {
+    query.set("workId", workId);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/api/traces${suffix}`, "GET");
+}
+
+export function listCharacters(workId) {
+  return request(`/api/works/${encodeURIComponent(workId)}/characters`, "GET");
+}
+
+export function createCharacter(workId, payload) {
+  return request(`/api/works/${encodeURIComponent(workId)}/characters`, "POST", payload);
+}
+
+export function updateCharacter(workId, characterId, payload) {
+  return request(
+    `/api/works/${encodeURIComponent(workId)}/characters/${encodeURIComponent(characterId)}`,
+    "PUT",
+    payload
+  );
+}
+
+export function deleteCharacter(workId, characterId) {
+  return request(
+    `/api/works/${encodeURIComponent(workId)}/characters/${encodeURIComponent(characterId)}`,
+    "DELETE"
+  );
 }
 
 export async function generateScriptStream(payload, handlers = {}, signal) {
@@ -120,6 +182,8 @@ export async function generateScriptStream(payload, handlers = {}, signal) {
         handlers.onToken(item.data);
       } else if (item.event === "warn" && handlers.onWarn) {
         handlers.onWarn(item.data);
+      } else if (item.event === "meta" && handlers.onMeta) {
+        handlers.onMeta(item.data);
       } else if (item.event === "done" && handlers.onDone) {
         handlers.onDone(item.data);
       } else if (item.event === "error" && handlers.onError) {

@@ -2,14 +2,49 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { currentUser, logout } from "../api/auth";
-import { deleteWork, generateScriptStream, listScripts, listWorks, saveScript } from "../api/script";
+import {
+  createCharacter,
+  createWork,
+  deleteCharacter,
+  deleteWork,
+  generateScriptStream,
+  generateWorkTitle,
+  updateWorkTitle,
+  listCharacters,
+  listScriptsByWorkId,
+  listWorks,
+  saveScript,
+  updateCharacter
+} from "../api/script";
 import ChapterFieldList from "../components/ChapterFieldList.vue";
+import TaskSidebar from "../components/TaskSidebar.vue";
 import { validateChapterContent } from "../utils/chapterValidation";
-import { loadWorkbenchDraft, saveWorkbenchDraft } from "../utils/workbenchDraft";
+import {
+  loadWorkbenchDraft,
+  loadWorkbenchState,
+  removeWorkbenchDraft,
+  saveWorkbenchDraft
+} from "../utils/workbenchDraft";
+
+const SIDEBAR_COLLAPSED_KEY = "ntc_task_sidebar_collapsed";
+const TITLE_MIN_EXCERPT = 20;
 
 const router = useRouter();
 const title = ref("");
+const workId = ref("");
 const works = ref([]);
+const characters = ref([]);
+const characterForm = ref(createEmptyCharacterForm());
+const editingCharacterId = ref("");
+const characterLoading = ref(false);
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+const titleNamingWorkId = ref("");
+const titleNamedWorkIds = new Set();
+const titleManualWorkIds = new Set();
+const taskTitleInput = ref("");
+const titleSaving = ref(false);
+let titleGenerateTimer = null;
+let titleSaveTimer = null;
 const chapterItems = ref([createChapterItem()]);
 const resultsById = ref({});
 const notice = ref("");
@@ -24,6 +59,15 @@ function createChapterItem(content = "") {
   return { id: crypto.randomUUID(), content };
 }
 
+function createEmptyCharacterForm() {
+  return {
+    name: "",
+    displayName: "",
+    description: "",
+    personality: ""
+  };
+}
+
 function createEmptyResult() {
   return {
     content: "",
@@ -32,7 +76,9 @@ function createEmptyResult() {
     error: "",
     warning: "",
     saved: false,
-    recordId: null
+    recordId: null,
+    traceId: "",
+    generationId: ""
   };
 }
 
@@ -86,26 +132,28 @@ function scheduleDraftSave() {
 }
 
 function persistDraft() {
-  saveWorkbenchDraft({
-    title: title.value,
+  if (!workId.value) {
+    return;
+  }
+  saveWorkbenchDraft(workId.value, {
     chapterItems: chapterItems.value,
     resultsById: resultsById.value
   });
 }
 
-function restoreDraft() {
-  const draft = loadWorkbenchDraft();
+function applyDraft(draft) {
   if (!draft) {
+    chapterItems.value = [createChapterItem()];
+    resultsById.value = {};
     return;
-  }
-  if (typeof draft.title === "string") {
-    title.value = draft.title;
   }
   if (Array.isArray(draft.chapterItems) && draft.chapterItems.length > 0) {
     chapterItems.value = draft.chapterItems.map((item) => ({
       id: item.id || crypto.randomUUID(),
       content: item.content || ""
     }));
+  } else {
+    chapterItems.value = [createChapterItem()];
   }
   if (draft.resultsById && typeof draft.resultsById === "object") {
     resultsById.value = Object.fromEntries(
@@ -118,11 +166,165 @@ function restoreDraft() {
           error: result?.error || "",
           warning: result?.warning || "",
           saved: result?.saved || false,
-          recordId: result?.recordId || null
+          recordId: result?.recordId || null,
+          traceId: result?.traceId || "",
+          generationId: result?.generationId || ""
         }
       ])
     );
+  } else {
+    resultsById.value = {};
   }
+}
+
+function restoreDraftForWork(selectedWorkId) {
+  applyDraft(loadWorkbenchDraft(selectedWorkId));
+}
+
+function firstChapterExcerpt() {
+  const content = chapterItems.value[0]?.content ?? "";
+  return content.trim();
+}
+
+function isUntitledWorkName(value) {
+  const normalized = (value || "").trim();
+  return !normalized || normalized === "未命名作品";
+}
+
+function syncTaskTitleInput() {
+  taskTitleInput.value = isUntitledWorkName(title.value) ? "" : title.value;
+}
+
+function scheduleTitleGeneration() {
+  if (!workId.value || titleManualWorkIds.has(workId.value) || titleNamingWorkId.value) {
+    return;
+  }
+  if (!isUntitledWorkName(title.value)) {
+    titleNamedWorkIds.add(workId.value);
+    return;
+  }
+  const excerpt = firstChapterExcerpt();
+  if (excerpt.length < TITLE_MIN_EXCERPT) {
+    return;
+  }
+  if (titleGenerateTimer) {
+    clearTimeout(titleGenerateTimer);
+  }
+  titleGenerateTimer = setTimeout(() => {
+    void generateTitleForCurrentWork(excerpt);
+  }, 900);
+}
+
+async function saveTaskTitle(manualTitle, { manual = true } = {}) {
+  if (!workId.value || titleSaving.value) {
+    return false;
+  }
+  const normalized = (manualTitle || "").trim();
+  titleSaving.value = true;
+  try {
+    const { response, payload } = await updateWorkTitle(workId.value, normalized);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return false;
+    }
+    if (!response.ok) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `任务名称保存失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return false;
+    }
+    title.value = payload?.title ?? normalized;
+    syncTaskTitleInput();
+    if (manual && normalized) {
+      titleManualWorkIds.add(workId.value);
+      titleNamedWorkIds.add(workId.value);
+    } else if (!normalized) {
+      titleManualWorkIds.delete(workId.value);
+      titleNamedWorkIds.delete(workId.value);
+      scheduleTitleGeneration();
+    } else {
+      titleNamedWorkIds.add(workId.value);
+    }
+    await onRefreshWorks();
+    return true;
+  } catch (error) {
+    showNotice("error", `任务名称保存失败：${error.message}`);
+    return false;
+  } finally {
+    titleSaving.value = false;
+  }
+}
+
+function scheduleTaskTitleSave() {
+  if (!workId.value) {
+    return;
+  }
+  if (titleSaveTimer) {
+    clearTimeout(titleSaveTimer);
+  }
+  titleSaveTimer = setTimeout(() => {
+    const input = taskTitleInput.value.trim();
+    const current = isUntitledWorkName(title.value) ? "" : title.value.trim();
+    if (input === current) {
+      return;
+    }
+    void saveTaskTitle(input, { manual: true });
+  }, 500);
+}
+
+async function onRenameTask({ work, title: nextTitle }) {
+  if (!work?.workId) {
+    return;
+  }
+  if (work.workId !== workId.value) {
+    await loadWork(work);
+  }
+  taskTitleInput.value = nextTitle;
+  const saved = await saveTaskTitle(nextTitle, { manual: Boolean(nextTitle) });
+  if (saved && nextTitle) {
+    showNotice("success", `任务已命名为「${nextTitle}」`);
+  }
+}
+
+async function generateTitleForCurrentWork(excerpt = firstChapterExcerpt()) {
+  const currentWorkId = workId.value;
+  if (!currentWorkId || titleManualWorkIds.has(currentWorkId) || titleNamedWorkIds.has(currentWorkId)) {
+    return;
+  }
+  if (excerpt.length < TITLE_MIN_EXCERPT) {
+    return;
+  }
+  titleNamingWorkId.value = currentWorkId;
+  try {
+    const { response, payload } = await generateWorkTitle(currentWorkId, excerpt);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok) {
+      return;
+    }
+    if (payload?.title) {
+      title.value = payload.title;
+      titleNamedWorkIds.add(currentWorkId);
+      syncTaskTitleInput();
+      await onRefreshWorks();
+    }
+  } catch {
+    // 标题生成失败不阻断创作
+  } finally {
+    if (titleNamingWorkId.value === currentWorkId) {
+      titleNamingWorkId.value = "";
+    }
+  }
+}
+
+function toggleSidebarCollapsed() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed.value ? "1" : "0");
 }
 
 async function persistChapterResult(index, chapter) {
@@ -131,11 +333,14 @@ async function persistChapterResult(index, chapter) {
     return;
   }
   const payload = {
+    workId: workId.value || null,
     workTitle: title.value.trim() || "",
     chapterNumber: index + 1,
     chapterContent: chapter.content.trim(),
     scriptContent: result.content,
-    modelName: result.model || null
+    modelName: result.model || null,
+    traceId: result.traceId || null,
+    generationId: result.generationId || null
   };
   try {
     const { response, payload: savePayload } = await saveScript(payload);
@@ -154,11 +359,11 @@ function normalizeWorkTitle(value) {
 }
 
 function displayWorkTitle(workTitle) {
-  return normalizeWorkTitle(workTitle) || "未命名作品";
-}
-
-function isActiveWork(work) {
-  return normalizeWorkTitle(work?.workTitle) === normalizeWorkTitle(title.value);
+  const normalized = normalizeWorkTitle(workTitle);
+  if (!normalized || normalized === "未命名作品") {
+    return "新任务";
+  }
+  return normalized;
 }
 
 function applyRecords(records) {
@@ -177,18 +382,146 @@ function applyRecords(records) {
         error: "",
         warning: "",
         saved: true,
-        recordId: sorted[idx].id
+        recordId: sorted[idx].id,
+        traceId: sorted[idx].traceId || "",
+        generationId: sorted[idx].generationId || ""
       }
     ])
   );
   return sorted.length;
 }
 
-function resetWorkbenchForNewWork() {
+function resetWorkbenchState() {
   title.value = "";
   chapterItems.value = [createChapterItem()];
   resultsById.value = {};
-  persistDraft();
+  characters.value = [];
+  editingCharacterId.value = "";
+  characterForm.value = createEmptyCharacterForm();
+}
+
+function resetCharacterForm() {
+  editingCharacterId.value = "";
+  characterForm.value = createEmptyCharacterForm();
+}
+
+function startEditCharacter(character) {
+  editingCharacterId.value = character.id;
+  characterForm.value = {
+    name: character.name || "",
+    displayName: character.displayName || "",
+    description: character.description || "",
+    personality: character.personality || ""
+  };
+}
+
+async function onRefreshCharacters() {
+  if (!workId.value) {
+    characters.value = [];
+    return;
+  }
+  characterLoading.value = true;
+  try {
+    const { response, payload } = await listCharacters(workId.value);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (response.status === 404) {
+      characters.value = [];
+      return;
+    }
+    if (!response.ok) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `人物列表加载失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    characters.value = Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    showNotice("error", `人物列表加载失败：${error.message}`);
+  } finally {
+    characterLoading.value = false;
+  }
+}
+
+async function onSaveCharacter() {
+  if (!workId.value) {
+    showNotice("info", "请先创建或选择作品，再添加人物设定");
+    return;
+  }
+  const payload = {
+    name: characterForm.value.name.trim(),
+    displayName: characterForm.value.displayName.trim() || null,
+    description: characterForm.value.description.trim() || null,
+    personality: characterForm.value.personality.trim() || null
+  };
+  if (!payload.name) {
+    showNotice("error", "人物名称不能为空");
+    return;
+  }
+  characterLoading.value = true;
+  try {
+    const action = editingCharacterId.value
+      ? updateCharacter(workId.value, editingCharacterId.value, payload)
+      : createCharacter(workId.value, payload);
+    const { response, payload: result } = await action;
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok) {
+      const message = typeof result === "object" && result?.message
+        ? result.message
+        : `保存人物失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    resetCharacterForm();
+    await onRefreshCharacters();
+    showNotice("success", "人物设定已保存，下次生成将自动带上");
+  } catch (error) {
+    showNotice("error", `保存人物失败：${error.message}`);
+  } finally {
+    characterLoading.value = false;
+  }
+}
+
+async function onDeleteCharacter(character) {
+  if (!workId.value || !character?.id) {
+    return;
+  }
+  if (!window.confirm(`确定删除人物「${character.name}」吗？`)) {
+    return;
+  }
+  characterLoading.value = true;
+  try {
+    const { response, payload } = await deleteCharacter(workId.value, character.id);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok && response.status !== 204) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `删除人物失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    if (editingCharacterId.value === character.id) {
+      resetCharacterForm();
+    }
+    await onRefreshCharacters();
+    showNotice("success", `已删除人物「${character.name}」`);
+  } catch (error) {
+    showNotice("error", `删除人物失败：${error.message}`);
+  } finally {
+    characterLoading.value = false;
+  }
 }
 
 async function onRefreshWorks() {
@@ -212,11 +545,26 @@ async function onRefreshWorks() {
   }
 }
 
-async function onLoadHistory(workTitle = title.value) {
+async function loadWork(work) {
+  if (!work?.workId) {
+    return;
+  }
+  for (const controller of streamControllers.values()) {
+    controller.abort();
+  }
+  streamControllers.clear();
+  streamingIds.value = new Set();
+
+  workId.value = work.workId;
+  title.value = work.workTitle ?? "";
+  syncTaskTitleInput();
+  if (!isUntitledWorkName(title.value)) {
+    titleNamedWorkIds.add(work.workId);
+  }
+
   loading.value = true;
   try {
-    const normalizedTitle = normalizeWorkTitle(workTitle);
-    const { response, payload } = await listScripts(normalizedTitle);
+    const { response, payload } = await listScriptsByWorkId(work.workId);
     if (response.status === 401) {
       showNotice("error", "登录已过期，请重新登录");
       router.push("/login");
@@ -225,81 +573,135 @@ async function onLoadHistory(workTitle = title.value) {
     if (!response.ok) {
       const message = typeof payload === "object" && payload?.message
         ? payload.message
-        : `加载失败（HTTP ${response.status}）`;
+        : `任务加载失败（HTTP ${response.status}）`;
       showNotice("error", message);
       return;
     }
-    if (!Array.isArray(payload) || payload.length === 0) {
-      showNotice("info", `${displayWorkTitle(normalizedTitle)} 暂无历史记录`);
-      return;
+    if (Array.isArray(payload) && payload.length > 0) {
+      applyRecords(payload);
+    } else {
+      restoreDraftForWork(work.workId);
     }
-    title.value = normalizedTitle;
-    const count = applyRecords(payload);
-    showNotice("success", `已加载 ${displayWorkTitle(normalizedTitle)} 的 ${count} 章历史记录`);
+    await onRefreshCharacters();
+    persistDraft();
   } catch (error) {
-    showNotice("error", `加载历史失败：${error.message}`);
+    showNotice("error", `任务加载失败：${error.message}`);
   } finally {
     loading.value = false;
   }
 }
 
-async function onSelectWork(work) {
-  if (!work) {
-    return;
+async function onNewWork() {
+  for (const controller of streamControllers.values()) {
+    controller.abort();
   }
-  await onLoadHistory(work.workTitle ?? "");
-}
+  streamControllers.clear();
+  streamingIds.value = new Set();
 
-function onNewWork() {
-  resetWorkbenchForNewWork();
-  showNotice("info", "已切换到新作品，请填写标题后开始创作");
-}
-
-async function onDeleteWork() {
-  const workTitle = normalizeWorkTitle(title.value);
-  const label = displayWorkTitle(workTitle);
-  if (!window.confirm(`确定删除作品「${label}」的全部章节记录吗？`)) {
-    return;
-  }
   loading.value = true;
   try {
-    const { response, payload } = await deleteWork(workTitle);
+    const { response, payload } = await createWork("");
     if (response.status === 401) {
       showNotice("error", "登录已过期，请重新登录");
       router.push("/login");
       return;
     }
-    if (response.status === 404) {
-      showNotice("info", `${label} 暂无可删除记录`);
-      await onRefreshWorks();
+    if (!response.ok || !payload?.workId) {
+      showNotice("error", "新建任务失败，请稍后重试");
       return;
     }
-    if (!response.ok && response.status !== 204) {
+    workId.value = payload.workId;
+    resetWorkbenchState();
+    syncTaskTitleInput();
+    await onRefreshWorks();
+    persistDraft();
+    scheduleTitleGeneration();
+    showNotice("info", "已创建新任务，粘贴小说内容后将自动命名");
+  } catch (error) {
+    showNotice("error", `新建任务失败：${error.message}`);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onDeleteWork(work = null) {
+  const targetWorkId = work?.workId || workId.value;
+  if (!targetWorkId) {
+    return;
+  }
+  const label = displayWorkTitle(work?.displayTitle || work?.workTitle || title.value);
+  if (!window.confirm(`确定删除任务「${label}」及其全部内容吗？`)) {
+    return;
+  }
+  loading.value = true;
+  try {
+    const { response, payload } = await deleteWork({ workId: targetWorkId, workTitle: title.value });
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok && response.status !== 204 && response.status !== 404) {
       const message = typeof payload === "object" && payload?.message
         ? payload.message
         : `删除失败（HTTP ${response.status}）`;
       showNotice("error", message);
       return;
     }
-    resetWorkbenchForNewWork();
+    removeWorkbenchDraft(targetWorkId);
+    titleNamedWorkIds.delete(targetWorkId);
+    titleManualWorkIds.delete(targetWorkId);
     await onRefreshWorks();
-    showNotice("success", `已删除作品「${label}」`);
+    if (works.value.length > 0) {
+      await loadWork(works.value[0]);
+    } else {
+      workId.value = "";
+      resetWorkbenchState();
+    }
+    showNotice("success", `已删除任务「${label}」`);
   } catch (error) {
-    showNotice("error", `删除作品失败：${error.message}`);
+    showNotice("error", `删除任务失败：${error.message}`);
   } finally {
     loading.value = false;
   }
 }
 
-watch([title, chapterItems, resultsById], scheduleDraftSave, { deep: true });
+watch(workId, async (nextWorkId, previousWorkId) => {
+  if (nextWorkId === previousWorkId) {
+    return;
+  }
+  resetCharacterForm();
+  await onRefreshCharacters();
+});
+
+watch([chapterItems, resultsById], scheduleDraftSave, { deep: true });
+
+watch(taskTitleInput, () => {
+  scheduleTaskTitleSave();
+});
+
+watch(
+  () => chapterItems.value[0]?.content ?? "",
+  () => {
+    scheduleTitleGeneration();
+  }
+);
 
 function handleBeforeUnload() {
   persistDraft();
 }
 
 onMounted(async () => {
-  restoreDraft();
   await onRefreshWorks();
+  const state = loadWorkbenchState();
+  const initialWork = state.activeWorkId
+    ? works.value.find((item) => item.workId === state.activeWorkId)
+    : works.value[0];
+  if (initialWork) {
+    await loadWork(initialWork);
+  } else {
+    await onNewWork();
+  }
   window.addEventListener("beforeunload", handleBeforeUnload);
 });
 
@@ -307,6 +709,12 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", handleBeforeUnload);
   if (draftSaveTimer) {
     clearTimeout(draftSaveTimer);
+  }
+  if (titleGenerateTimer) {
+    clearTimeout(titleGenerateTimer);
+  }
+  if (titleSaveTimer) {
+    clearTimeout(titleSaveTimer);
   }
   persistDraft();
   for (const controller of streamControllers.values()) {
@@ -437,11 +845,15 @@ async function onGenerateChapter(index) {
   result.warning = "";
   result.saved = false;
   result.recordId = null;
+  result.traceId = "";
+  result.generationId = crypto.randomUUID();
   result.status = "streaming";
   setStreaming(chapter.id, true);
 
   try {
     const payload = {
+      workId: workId.value || null,
+      generationId: result.generationId,
       title: title.value.trim() || null,
       chapterNumber,
       chapterContent: content.trim()
@@ -452,6 +864,22 @@ async function onGenerateChapter(index) {
       {
         onOpen(modelName) {
           result.model = modelName;
+        },
+        onMeta(metaJson) {
+          try {
+            const meta = JSON.parse(metaJson);
+            if (meta.workId && !workId.value) {
+              workId.value = meta.workId;
+            }
+            if (meta.traceId) {
+              result.traceId = meta.traceId;
+            }
+            if (meta.generationId) {
+              result.generationId = meta.generationId;
+            }
+          } catch {
+            // 忽略 meta 解析失败
+          }
         },
         onToken(token) {
           result.content += token;
@@ -507,8 +935,11 @@ async function onGenerateChapter(index) {
   <main class="workbench-page">
     <header class="workbench-header">
       <div>
-        <h1>业务首页</h1>
-        <p class="sub-text">左侧按章填写并生成，右侧对应展示每章的流式输出。</p>
+        <h1>剧本工作台</h1>
+        <p class="sub-text">
+          左侧为任务列表，中间按章填写并生成，右侧展示流式输出。
+          <template v-if="title">当前任务：{{ displayWorkTitle(title) }}</template>
+        </p>
       </div>
       <div class="button-row header-actions">
         <button class="secondary" :disabled="loading" @click="onLoadCurrentUser">查看当前用户</button>
@@ -518,50 +949,125 @@ async function onGenerateChapter(index) {
 
     <p class="notice workbench-notice" :data-type="noticeType" v-if="notice">{{ notice }}</p>
 
-    <section class="workbench-layout">
+    <section class="workbench-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+      <TaskSidebar
+        :works="works"
+        :active-work-id="workId"
+        :collapsed="sidebarCollapsed"
+        :naming-work-id="titleNamingWorkId"
+        :loading="loading"
+        @select="loadWork"
+        @new="onNewWork"
+        @delete="onDeleteWork"
+        @rename="onRenameTask"
+        @toggle-collapse="toggleSidebarCollapsed"
+      />
+
+      <section class="workbench-layout">
       <div class="workbench-panel input-panel">
         <h2>用户提交</h2>
 
-        <section class="work-manager">
-          <div class="work-manager-header">
-            <h3>我的作品</h3>
-            <button type="button" class="secondary work-action-btn" :disabled="loading" @click="onRefreshWorks">
+        <section class="task-title-field">
+          <label for="task-title">任务名称</label>
+          <input
+            id="task-title"
+            v-model="taskTitleInput"
+            :disabled="!workId || titleSaving || Boolean(titleNamingWorkId)"
+            maxlength="32"
+            placeholder="自定义名称；留空则根据第一章内容自动生成短标题"
+          />
+          <p class="task-title-hint">
+            <template v-if="titleNamingWorkId === workId">正在自动生成标题...</template>
+            <template v-else>也可在左侧列表双击任务名快速重命名</template>
+          </p>
+        </section>
+
+        <section class="character-manager">
+          <div class="character-manager-header">
+            <h3>人物设定</h3>
+            <button
+              type="button"
+              class="secondary work-action-btn"
+              :disabled="characterLoading || !workId"
+              @click="onRefreshCharacters"
+            >
               刷新
             </button>
           </div>
-          <p v-if="works.length === 0" class="work-empty">暂无已保存作品，生成后会出现在这里。</p>
-          <ul v-else class="work-list">
-            <li
-              v-for="work in works"
-              :key="work.workTitle ?? '__untitled__'"
-              class="work-list-item"
-              :class="{ active: isActiveWork(work) }"
-            >
-              <button type="button" class="work-select-btn" :disabled="loading" @click="onSelectWork(work)">
-                <span class="work-select-title">{{ work.displayTitle || displayWorkTitle(work.workTitle) }}</span>
-                <span class="work-select-meta">{{ work.chapterCount }} 章</span>
-              </button>
-            </li>
-          </ul>
-          <div class="work-manager-actions">
-            <button type="button" class="secondary work-action-btn" :disabled="loading" @click="onNewWork">
-              新建作品
-            </button>
-            <button type="button" class="work-delete-btn" :disabled="loading" @click="onDeleteWork">
-              删除当前作品
-            </button>
-          </div>
-        </section>
+          <p v-if="!workId" class="character-empty">新建或选择任务后，可在此维护跨章人物设定。</p>
+          <template v-else>
+            <ul v-if="characters.length > 0" class="character-list">
+              <li
+                v-for="character in characters"
+                :key="character.id"
+                class="character-list-item"
+                :class="{ active: editingCharacterId === character.id }"
+              >
+                <button type="button" class="character-select-btn" @click="startEditCharacter(character)">
+                  <span class="character-name">{{ character.name }}</span>
+                  <span v-if="character.displayName" class="character-alias">{{ character.displayName }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="character-delete-btn"
+                  :disabled="characterLoading"
+                  @click="onDeleteCharacter(character)"
+                >
+                  删除
+                </button>
+              </li>
+            </ul>
+            <p v-else class="character-empty">暂无人物设定，添加后下次生成会自动注入 prompt。</p>
 
-        <div class="field work-title-field">
-          <label for="title">作品标题（可选）</label>
-          <div class="work-title-row">
-            <input id="title" v-model="title" placeholder="请输入作品标题" />
-            <button type="button" class="secondary load-history-btn" :disabled="loading" @click="onLoadHistory()">
-              加载历史
-            </button>
-          </div>
-        </div>
+            <div class="character-form">
+              <div class="character-form-row">
+                <label for="character-name">名称</label>
+                <input id="character-name" v-model="characterForm.name" placeholder="剧本中使用的名称" />
+              </div>
+              <div class="character-form-row">
+                <label for="character-display-name">别名</label>
+                <input id="character-display-name" v-model="characterForm.displayName" placeholder="可选" />
+              </div>
+              <div class="character-form-row">
+                <label for="character-description">身份</label>
+                <textarea
+                  id="character-description"
+                  v-model="characterForm.description"
+                  rows="2"
+                  placeholder="身份或背景描述"
+                />
+              </div>
+              <div class="character-form-row">
+                <label for="character-personality">性格</label>
+                <textarea
+                  id="character-personality"
+                  v-model="characterForm.personality"
+                  rows="2"
+                  placeholder="性格特征"
+                />
+              </div>
+              <div class="character-form-actions">
+                <button
+                  type="button"
+                  class="secondary work-action-btn"
+                  :disabled="characterLoading"
+                  @click="onSaveCharacter"
+                >
+                  {{ editingCharacterId ? "更新人物" : "添加人物" }}
+                </button>
+                <button
+                  v-if="editingCharacterId"
+                  type="button"
+                  class="secondary work-action-btn"
+                  :disabled="characterLoading"
+                  @click="resetCharacterForm"
+                >
+                  取消编辑
+                </button>
+              </div>
+            </div>
+          </template>
+        </section>
 
         <ChapterFieldList
           v-model="chapterItems"
@@ -601,6 +1107,9 @@ async function onGenerateChapter(index) {
 
             <p v-if="resultsById[chapter.id]?.model" class="result-meta">
               模型：{{ resultsById[chapter.id].model }}
+              <template v-if="resultsById[chapter.id]?.traceId">
+                · trace：{{ resultsById[chapter.id].traceId }}
+              </template>
             </p>
             <p v-else-if="streamingIds.has(chapter.id)" class="result-meta">等待模型响应...</p>
 
@@ -628,6 +1137,7 @@ async function onGenerateChapter(index) {
           </div>
         </div>
       </div>
+      </section>
     </section>
   </main>
 </template>

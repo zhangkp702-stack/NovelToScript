@@ -1,3 +1,16 @@
+-- 开发环境专用：删除剧本与 LLM Trace 表后按 Phase 1 最新结构重建。
+-- 会清空：t_script_work、t_script_record、t_llm_trace_run、t_llm_trace_node
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS t_script_record;
+DROP TABLE IF EXISTS t_character;
+DROP TABLE IF EXISTS t_script_work;
+DROP TABLE IF EXISTS t_llm_trace_node;
+DROP TABLE IF EXISTS t_llm_trace_run;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
 CREATE TABLE IF NOT EXISTS t_llm_trace_run (
     id BIGINT NOT NULL COMMENT '主键ID',
     trace_id VARCHAR(64) NOT NULL COMMENT '全局链路ID',
