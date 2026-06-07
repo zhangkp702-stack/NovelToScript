@@ -18,8 +18,10 @@ import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
 import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
+import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.service.CharacterService;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
+import com.zkp.my12306.ntc.service.ScriptWorkService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -46,6 +48,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
     private final ScriptOutputParser outputParser;
     private final ScriptSchemaValidator schemaValidator;
     private final CharacterService characterService;
+    private final ScriptWorkService scriptWorkService;
     private final ObjectMapper objectMapper;
 
     public ScriptApplicationServiceImpl(
@@ -55,6 +58,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
             ScriptOutputParser outputParser,
             ScriptSchemaValidator schemaValidator,
             CharacterService characterService,
+            ScriptWorkService scriptWorkService,
             ObjectMapper objectMapper) {
         this.llmService = llmService;
         this.inputValidator = inputValidator;
@@ -62,6 +66,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
         this.outputParser = outputParser;
         this.schemaValidator = schemaValidator;
         this.characterService = characterService;
+        this.scriptWorkService = scriptWorkService;
         this.objectMapper = objectMapper;
     }
 
@@ -78,9 +83,10 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
             String generationId,
             String currentUser) {
         ChapterRequest chapterRequest = validateChapterRequest(request);
+        String workTitle = resolveWorkTitle(currentUser, workId);
         List<CharacterPromptItem> characters = characterService.listForPrompt(currentUser, workId);
         String prompt = promptBuilder.build(
-                chapterRequest.title(),
+                workTitle,
                 chapterRequest.chapterNumber(),
                 chapterRequest.chapterContent(),
                 characters);
@@ -105,9 +111,10 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
             String currentUser,
             SseEmitter emitter) {
         ChapterRequest chapterRequest = validateChapterRequest(request);
+        String workTitle = resolveWorkTitle(currentUser, workId);
         List<CharacterPromptItem> characters = characterService.listForPrompt(currentUser, workId);
         String prompt = promptBuilder.build(
-                chapterRequest.title(),
+                workTitle,
                 chapterRequest.chapterNumber(),
                 chapterRequest.chapterContent(),
                 characters);
@@ -115,7 +122,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 currentUser,
                 workId,
                 chapterRequest.chapterNumber(),
-                chapterRequest.title() == null || chapterRequest.title().isBlank() ? "未命名作品" : chapterRequest.title(),
+                workTitle,
                 chapterRequest.chapterContent().length(),
                 characters.size());
 
@@ -242,9 +249,18 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
         int chapterNumber = request == null || request.chapterNumber() == null ? 1 : request.chapterNumber();
         String content = request == null || request.chapterContent() == null ? "" : request.chapterContent().trim();
         inputValidator.validate(chapterNumber, content);
-        return new ChapterRequest(request == null ? null : request.title(), chapterNumber, content);
+        return new ChapterRequest(chapterNumber, content);
     }
 
-    private record ChapterRequest(String title, int chapterNumber, String chapterContent) {
+    private String resolveWorkTitle(String currentUser, String workId) {
+        ScriptWorkDO work = scriptWorkService.requireOwnedWork(currentUser, workId);
+        String title = work.getTitle();
+        if (title == null || title.isBlank()) {
+            return "未命名作品";
+        }
+        return title.trim();
+    }
+
+    private record ChapterRequest(int chapterNumber, String chapterContent) {
     }
 }

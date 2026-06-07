@@ -11,15 +11,15 @@ public interface ScriptWorkService {
 
     ScriptWorkResponseDto createWork(String currentUser, ScriptWorkCreateRequestDto request);
 
-    String resolveWorkId(String currentUser, String workId, String title);
+    String requireWorkId(String currentUser, String workId);
 
     ScriptWorkDO requireOwnedWork(String currentUser, String workId);
+
+    void backfillLegacyRecords(String currentUser);
 
     List<ScriptWorkSummaryDto> listWorks(String currentUser);
 
     void deleteWork(String currentUser, String workId);
-
-    void deleteWorkByTitle(String currentUser, String workTitle);
 
     void touchWork(String workId);
 

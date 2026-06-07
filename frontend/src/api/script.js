@@ -58,15 +58,6 @@ export function saveScript(payload) {
   return request("/api/scripts", "POST", payload);
 }
 
-export function listScripts(workTitle = "") {
-  const query = new URLSearchParams();
-  if (workTitle) {
-    query.set("workTitle", workTitle);
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return request(`/api/scripts${suffix}`, "GET");
-}
-
 export function getScript(id) {
   return request(`/api/scripts/${id}`, "GET");
 }
@@ -89,16 +80,9 @@ export function updateWorkTitle(workId, title = "") {
   return request(`/api/scripts/works/${encodeURIComponent(workId)}/title`, "PUT", { title });
 }
 
-export function deleteWork({ workTitle = "", workId = "" } = {}) {
-  const query = new URLSearchParams();
-  if (workTitle) {
-    query.set("workTitle", workTitle);
-  }
-  if (workId) {
-    query.set("workId", workId);
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return request(`/api/scripts/works${suffix}`, "DELETE");
+export function deleteWork(workId) {
+  const query = new URLSearchParams({ workId });
+  return request(`/api/scripts/works?${query.toString()}`, "DELETE");
 }
 
 export function listScriptsByWorkId(workId = "") {
@@ -146,8 +130,16 @@ export function deleteCharacter(workId, characterId) {
   );
 }
 
-export async function generateScriptStream(payload, handlers = {}, signal) {
-  const response = await fetch("/api/scripts/generate/stream", {
+export function listRefineMessages(workId, chapterNumber) {
+  const query = new URLSearchParams({
+    workId,
+    chapterNumber: String(chapterNumber)
+  });
+  return request(`/api/scripts/messages?${query.toString()}`, "GET");
+}
+
+async function postSseStream(url, payload, handlers = {}, signal) {
+  const response = await fetch(url, {
     method: "POST",
     credentials: "include",
     headers: buildHeaders({
@@ -215,4 +207,12 @@ export async function generateScriptStream(payload, handlers = {}, signal) {
   }
 
   return { response };
+}
+
+export async function generateScriptStream(payload, handlers = {}, signal) {
+  return postSseStream("/api/scripts/generate/stream", payload, handlers, signal);
+}
+
+export async function refineScriptStream(payload, handlers = {}, signal) {
+  return postSseStream("/api/scripts/refine/stream", payload, handlers, signal);
 }

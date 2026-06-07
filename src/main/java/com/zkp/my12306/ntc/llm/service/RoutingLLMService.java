@@ -1,6 +1,7 @@
 package com.zkp.my12306.ntc.llm.service;
 
 import com.zkp.my12306.ntc.llm.client.ChatClient;
+import com.zkp.my12306.ntc.llm.service.ChatMessage;
 import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.routing.ModelHealthStore;
 import com.zkp.my12306.ntc.llm.routing.ModelRoutingExecutor;
@@ -55,16 +56,28 @@ public class RoutingLLMService implements LLMService {
     @Override
     @TraceNode(name = "llmSyncChat", type = "LLM")
     public ChatResult chat(String prompt) {
+        return chat(List.of(new ChatMessage("user", prompt)));
+    }
+
+    @Override
+    @TraceNode(name = "llmSyncChat", type = "LLM")
+    public ChatResult chat(List<ChatMessage> messages) {
         List<ModelTarget> targets = modelSelector.selectChatCandidates();
         if (targets.isEmpty()) {
             throw new IllegalStateException("未找到可用的大模型配置");
         }
-        return modelRoutingExecutor.executeChat(prompt, targets, chatClientMap);
+        return modelRoutingExecutor.executeChat(messages, targets, chatClientMap);
     }
 
     @Override
     @TraceNode(name = "llmStreamChat", type = "LLM")
     public StreamCancellationHandle streamChat(String prompt, StreamCallback callback) {
+        return streamChat(List.of(new ChatMessage("user", prompt)), callback);
+    }
+
+    @Override
+    @TraceNode(name = "llmStreamChat", type = "LLM")
+    public StreamCancellationHandle streamChat(List<ChatMessage> messages, StreamCallback callback) {
         List<ModelTarget> targets = modelSelector.selectChatCandidates();
         if (targets.isEmpty()) {
             throw new IllegalStateException("未找到可用的大模型配置");
@@ -91,38 +104,10 @@ public class RoutingLLMService implements LLMService {
                 AtomicBoolean attemptActive = new AtomicBoolean(true);
                 BufferedProbeCallback bufferedCallback = null;
                 try {
-                    StreamCallback guardedCallback = new StreamCallback() {
-                        @Override
-                        public void onOpen(String modelName) {
-                            if (!cancelled.get() && attemptActive.get()) {
-                                callback.onOpen(modelName);
-                            }
-                        }
-
-                        @Override
-                        public void onToken(String token) {
-                            if (!cancelled.get() && attemptActive.get()) {
-                                callback.onToken(token);
-                            }
-                        }
-
-                        @Override
-                        public void onComplete() {
-                            if (!cancelled.get() && attemptActive.get()) {
-                                callback.onComplete();
-                            }
-                        }
-
-                        @Override
-                        public void onError(Throwable throwable) {
-                            if (!cancelled.get() && attemptActive.get()) {
-                                callback.onError(throwable);
-                            }
-                        }
-                    };
+                    StreamCallback guardedCallback = createGuardedCallback(callback, cancelled, attemptActive);
                     bufferedCallback = new BufferedProbeCallback(guardedCallback);
                     ProbeStreamBridge bridge = new ProbeStreamBridge(bufferedCallback);
-                    StreamCancellationHandle delegate = chatClient.streamChat(prompt, target, bridge);
+                    StreamCancellationHandle delegate = chatClient.streamChat(messages, target, bridge);
                     activeDelegate.set(delegate);
                     ProbeStreamBridge.FirstEvent firstEvent = bridge.awaitFirstEvent(timeoutMs);
                     if (firstEvent.type() == ProbeStreamBridge.FirstEventType.TOKEN) {
@@ -173,5 +158,40 @@ public class RoutingLLMService implements LLMService {
                 delegate.cancel();
             }
         });
+    }
+
+    private StreamCallback createGuardedCallback(
+            StreamCallback callback,
+            AtomicBoolean cancelled,
+            AtomicBoolean attemptActive) {
+        return new StreamCallback() {
+            @Override
+            public void onOpen(String modelName) {
+                if (!cancelled.get() && attemptActive.get()) {
+                    callback.onOpen(modelName);
+                }
+            }
+
+            @Override
+            public void onToken(String token) {
+                if (!cancelled.get() && attemptActive.get()) {
+                    callback.onToken(token);
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                if (!cancelled.get() && attemptActive.get()) {
+                    callback.onComplete();
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                if (!cancelled.get() && attemptActive.get()) {
+                    callback.onError(throwable);
+                }
+            }
+        };
     }
 }

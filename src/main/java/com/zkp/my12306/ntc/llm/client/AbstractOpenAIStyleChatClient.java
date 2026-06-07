@@ -6,6 +6,7 @@ import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.enums.ModelCapability;
 import com.zkp.my12306.ntc.llm.http.ModelUrlResolver;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
+import com.zkp.my12306.ntc.llm.service.ChatMessage;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.stream.StreamAsyncExecutor;
 import com.zkp.my12306.ntc.llm.stream.StreamCallback;
@@ -53,8 +54,13 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
 
     @Override
     public ChatResult chat(String prompt, ModelTarget modelTarget) {
+        return chat(List.of(new ChatMessage("user", prompt)), modelTarget);
+    }
+
+    @Override
+    public ChatResult chat(List<ChatMessage> messages, ModelTarget modelTarget) {
         try {
-            String body = buildRequestBody(prompt, modelTarget, false);
+            String body = buildRequestBody(messages, modelTarget, false);
             HttpRequest request = buildRequest(modelTarget, body);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -71,9 +77,14 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
 
     @Override
     public StreamCancellationHandle streamChat(String prompt, ModelTarget modelTarget, StreamCallback callback) {
+        return streamChat(List.of(new ChatMessage("user", prompt)), modelTarget, callback);
+    }
+
+    @Override
+    public StreamCancellationHandle streamChat(List<ChatMessage> messages, ModelTarget modelTarget, StreamCallback callback) {
         try {
             callback.onOpen(modelTarget.id());
-            String body = buildRequestBody(prompt, modelTarget, true);
+            String body = buildRequestBody(messages, modelTarget, true);
             HttpRequest request = buildRequest(modelTarget, body);
             AtomicBoolean cancelled = new AtomicBoolean(false);
             AtomicReference<CompletableFuture<?>> requestFutureRef = new AtomicReference<>();
@@ -134,11 +145,11 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         return builder.build();
     }
 
-    private String buildRequestBody(String prompt, ModelTarget modelTarget, boolean stream) throws IOException {
+    private String buildRequestBody(List<ChatMessage> messages, ModelTarget modelTarget, boolean stream) throws IOException {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", modelTarget.candidate().getModel());
         payload.put("stream", stream);
-        payload.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        payload.put("messages", toMessagePayload(messages));
         if (generation.getMaxTokens() != null) {
             payload.put("max_tokens", generation.getMaxTokens());
         }
@@ -167,6 +178,24 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     private boolean requiresDisableThinking(String model) {
         return model.startsWith("deepseek-ai/DeepSeek-V3")
                 || model.startsWith("deepseek-ai/DeepSeek-V4");
+    }
+
+    private List<Map<String, String>> toMessagePayload(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return List.of(Map.of("role", "user", "content", ""));
+        }
+        return messages.stream()
+                .map(message -> Map.of(
+                        "role", normalizeRole(message.role()),
+                        "content", message.content() == null ? "" : message.content()))
+                .toList();
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null || role.isBlank()) {
+            return "user";
+        }
+        return role.trim().toLowerCase();
     }
 
     private String readErrorBody(InputStream body) {

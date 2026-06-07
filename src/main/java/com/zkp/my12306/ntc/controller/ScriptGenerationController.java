@@ -55,7 +55,7 @@ public class ScriptGenerationController {
 
         String currentUser = authentication.getName();
         String generationId = resolveGenerationId(request);
-        String workId = scriptWorkService.resolveWorkId(currentUser, request.workId(), request.title());
+        String workId = scriptWorkService.requireWorkId(currentUser, request.workId());
         SseEmitter emitter = new SseEmitter(300_000L);
         scriptApplicationService.streamGenerateScript(request, workId, generationId, currentUser, emitter);
         return ResponseEntity.ok().contentType(SSE_UTF8).body(emitter);
@@ -66,7 +66,7 @@ public class ScriptGenerationController {
         try {
             String currentUser = authentication.getName();
             String generationId = resolveGenerationId(request);
-            String workId = scriptWorkService.resolveWorkId(currentUser, request.workId(), request.title());
+            String workId = scriptWorkService.requireWorkId(currentUser, request.workId());
             ScriptGenerateResponseDto response = scriptApplicationService.generateScript(
                     request, workId, generationId, currentUser);
             return ResponseEntity.ok(response);

@@ -10,13 +10,11 @@ public interface ScriptRecordService {
 
     ScriptRecordResponseDto save(String currentUser, ScriptSaveRequestDto request);
 
-    List<ScriptRecordResponseDto> listByWorkTitle(String currentUser, String workTitle);
-
     List<ScriptRecordResponseDto> listByWorkId(String currentUser, String workId);
 
     List<ScriptWorkSummaryDto> listWorks(String currentUser);
 
-    void deleteWork(String currentUser, String workTitle, String workId);
+    void deleteWork(String currentUser, String workId);
 
     ScriptRecordResponseDto getById(String currentUser, Long id);
 }
