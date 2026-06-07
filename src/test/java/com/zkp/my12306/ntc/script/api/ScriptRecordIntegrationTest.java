@@ -3,6 +3,7 @@ package com.zkp.my12306.ntc.script.api;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.dto.ScriptRecordResponseDto;
+import com.zkp.my12306.ntc.dto.ScriptWorkResponseDto;
 import com.zkp.my12306.ntc.dto.ScriptWorkSummaryDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,18 +44,31 @@ class ScriptRecordIntegrationTest {
                 .build();
     }
 
+    private String createWork(String title) throws Exception {
+        String workResponse = mockMvc.perform(post("/api/scripts/works")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + title + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        ScriptWorkResponseDto work = objectMapper.readValue(workResponse, ScriptWorkResponseDto.class);
+        return work.workId();
+    }
+
     @Test
     @WithMockUser(username = "tester")
     void saveAndListScriptRecord_success() throws Exception {
+        String workId = createWork("雨夜归来");
         String saveBody = """
                 {
-                  "workTitle": "雨夜归来",
+                  "workId": "%s",
                   "chapterNumber": 1,
                   "chapterContent": "第一章小说内容",
                   "scriptContent": "剧本标题：《雨夜归来》\\n场景一：开场\\n旁白：雨夜。",
                   "modelName": "mock-model"
                 }
-                """;
+                """.formatted(workId);
 
         String saveResponse = mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,11 +80,11 @@ class ScriptRecordIntegrationTest {
 
         ScriptRecordResponseDto saved = objectMapper.readValue(saveResponse, ScriptRecordResponseDto.class);
         assertEquals("雨夜归来", saved.workTitle());
-        assertTrue(saved.workId() != null && !saved.workId().isBlank());
+        assertEquals(workId, saved.workId());
         assertEquals(1, saved.chapterNumber());
 
         String listResponse = mockMvc.perform(get("/api/scripts")
-                        .param("workTitle", "雨夜归来"))
+                        .param("workId", workId))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -90,14 +104,15 @@ class ScriptRecordIntegrationTest {
     @Test
     @WithMockUser(username = "tester")
     void save_withEmptyScriptContent_returnsBadRequest() throws Exception {
+        String workId = createWork("测试");
         String saveBody = """
                 {
-                  "workTitle": "测试",
+                  "workId": "%s",
                   "chapterNumber": 1,
                   "chapterContent": "内容",
                   "scriptContent": "   "
                 }
-                """;
+                """.formatted(workId);
 
         mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -108,14 +123,15 @@ class ScriptRecordIntegrationTest {
     @Test
     @WithMockUser(username = "other-user")
     void getById_notOwner_returnsNotFound() throws Exception {
+        String workId = createWork("隔离测试");
         String saveBody = """
                 {
-                  "workTitle": "隔离测试",
+                  "workId": "%s",
                   "chapterNumber": 1,
                   "chapterContent": "内容",
                   "scriptContent": "剧本内容"
                 }
-                """;
+                """.formatted(workId);
 
         String saveResponse = mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -135,22 +151,23 @@ class ScriptRecordIntegrationTest {
     @Test
     @WithMockUser(username = "tester")
     void save_sameChapter_updatesExistingRecord() throws Exception {
+        String workId = createWork("更新测试");
         String firstSave = """
                 {
-                  "workTitle": "更新测试",
+                  "workId": "%s",
                   "chapterNumber": 2,
                   "chapterContent": "旧内容",
                   "scriptContent": "旧剧本"
                 }
-                """;
+                """.formatted(workId);
         String secondSave = """
                 {
-                  "workTitle": "更新测试",
+                  "workId": "%s",
                   "chapterNumber": 2,
                   "chapterContent": "新内容",
                   "scriptContent": "新剧本"
                 }
-                """;
+                """.formatted(workId);
 
         String firstResponse = mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -179,38 +196,41 @@ class ScriptRecordIntegrationTest {
     @Test
     @WithMockUser(username = "tester")
     void listWorks_returnsSummariesAndDeleteWork_removesRecords() throws Exception {
+        String workIdA = createWork("作品管理A");
+        String workIdB = createWork("作品管理B");
+
         mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "workTitle": "作品管理A",
+                                  "workId": "%s",
                                   "chapterNumber": 1,
                                   "chapterContent": "第一章",
                                   "scriptContent": "剧本A1"
                                 }
-                                """))
+                                """.formatted(workIdA)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "workTitle": "作品管理A",
+                                  "workId": "%s",
                                   "chapterNumber": 2,
                                   "chapterContent": "第二章",
                                   "scriptContent": "剧本A2"
                                 }
-                                """))
+                                """.formatted(workIdA)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/scripts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "workTitle": "作品管理B",
+                                  "workId": "%s",
                                   "chapterNumber": 1,
                                   "chapterContent": "B章",
                                   "scriptContent": "剧本B1"
                                 }
-                                """))
+                                """.formatted(workIdB)))
                 .andExpect(status().isOk());
 
         String worksResponse = mockMvc.perform(get("/api/scripts/works"))
@@ -222,12 +242,14 @@ class ScriptRecordIntegrationTest {
                 worksResponse,
                 new TypeReference<List<ScriptWorkSummaryDto>>() {
                 });
-        assertTrue(works.stream().anyMatch(work -> "作品管理A".equals(work.workTitle())
-                && work.workId() != null
+        assertTrue(works.stream().anyMatch(work -> workIdA.equals(work.workId())
+                && "作品管理A".equals(work.workTitle())
                 && work.chapterCount() == 2));
-        assertTrue(works.stream().anyMatch(work -> "作品管理B".equals(work.workTitle()) && work.chapterCount() == 1));
+        assertTrue(works.stream().anyMatch(work -> workIdB.equals(work.workId())
+                && "作品管理B".equals(work.workTitle())
+                && work.chapterCount() == 1));
 
-        mockMvc.perform(delete("/api/scripts/works").param("workTitle", "作品管理A"))
+        mockMvc.perform(delete("/api/scripts/works").param("workId", workIdA))
                 .andExpect(status().isNoContent());
 
         String worksAfterDelete = mockMvc.perform(get("/api/scripts/works"))
@@ -239,18 +261,14 @@ class ScriptRecordIntegrationTest {
                 worksAfterDelete,
                 new TypeReference<List<ScriptWorkSummaryDto>>() {
                 });
-        assertTrue(remaining.stream().noneMatch(work -> "作品管理A".equals(work.workTitle())));
-        assertTrue(remaining.stream().anyMatch(work -> "作品管理B".equals(work.workTitle())));
+        assertTrue(remaining.stream().noneMatch(work -> workIdA.equals(work.workId())));
+        assertTrue(remaining.stream().anyMatch(work -> workIdB.equals(work.workId())));
 
-        String deletedListResponse = mockMvc.perform(get("/api/scripts").param("workTitle", "作品管理A"))
-                .andExpect(status().isOk())
+        String deletedListResponse = mockMvc.perform(get("/api/scripts").param("workId", workIdA))
+                .andExpect(status().isNotFound())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        List<ScriptRecordResponseDto> deletedRecords = objectMapper.readValue(
-                deletedListResponse,
-                new TypeReference<List<ScriptRecordResponseDto>>() {
-                });
-        assertEquals(0, deletedRecords.size());
+        assertTrue(deletedListResponse.contains("作品不存在") || deletedListResponse.contains("不存在"));
     }
 }

@@ -37,7 +37,7 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
     public ScriptRecordResponseDto save(String currentUser, ScriptSaveRequestDto request) {
         validateSaveRequest(currentUser, request);
         String userId = currentUser.trim();
-        String workId = scriptWorkService.resolveWorkId(currentUser, request.workId(), request.workTitle());
+        String workId = scriptWorkService.requireWorkId(currentUser, request.workId());
         ScriptWorkDO work = scriptWorkService.requireOwnedWork(currentUser, workId);
         String workTitle = work.getTitle();
         int chapterNumber = request.chapterNumber();
@@ -94,20 +94,6 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
     }
 
     @Override
-    public List<ScriptRecordResponseDto> listByWorkTitle(String currentUser, String workTitle) {
-        if (currentUser == null || currentUser.isBlank()) {
-            throw new ScriptRecordValidationException("用户未登录");
-        }
-        String userId = currentUser.trim();
-        String normalizedTitle = normalizeWorkTitle(workTitle);
-        List<ScriptRecordDO> records = scriptRecordMapper.selectList(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, normalizedTitle)
-                .orderByAsc(ScriptRecordDO::getChapterNumber));
-        return records.stream().map(this::toResponse).toList();
-    }
-
-    @Override
     public List<ScriptRecordResponseDto> listByWorkId(String currentUser, String workId) {
         scriptWorkService.requireOwnedWork(currentUser, workId);
         List<ScriptRecordDO> records = scriptRecordMapper.selectList(Wrappers.lambdaQuery(ScriptRecordDO.class)
@@ -123,12 +109,8 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
     }
 
     @Override
-    public void deleteWork(String currentUser, String workTitle, String workId) {
-        if (workId != null && !workId.isBlank()) {
-            scriptWorkService.deleteWork(currentUser, workId);
-            return;
-        }
-        scriptWorkService.deleteWorkByTitle(currentUser, workTitle);
+    public void deleteWork(String currentUser, String workId) {
+        scriptWorkService.deleteWork(currentUser, scriptWorkService.requireWorkId(currentUser, workId));
     }
 
     @Override
@@ -165,13 +147,9 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
         if (request.scriptContent() == null || request.scriptContent().isBlank()) {
             throw new ScriptRecordValidationException("剧本内容不能为空");
         }
-    }
-
-    private String normalizeWorkTitle(String workTitle) {
-        if (workTitle == null) {
-            return "";
+        if (request.workId() == null || request.workId().isBlank()) {
+            throw new ScriptRecordValidationException("作品ID不能为空");
         }
-        return workTitle.trim();
     }
 
     private String normalizeOptional(String value) {

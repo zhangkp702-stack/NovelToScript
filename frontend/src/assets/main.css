@@ -776,3 +776,72 @@ button:disabled {
   max-height: 360px;
   overflow: auto;
 }
+
+.refine-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.refine-panel-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.refine-panel-hint {
+  margin: 0 0 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.refine-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.refine-message {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.refine-role {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #374151;
+}
+
+.refine-message[data-role="assistant"] .refine-role {
+  color: #1d4ed8;
+}
+
+.refine-text {
+  color: #4b5563;
+  word-break: break-word;
+}
+
+.refine-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.refine-input {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.refine-submit-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 13px;
+}

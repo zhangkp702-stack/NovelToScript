@@ -5,9 +5,11 @@ import com.zkp.my12306.ntc.dto.ScriptWorkCreateRequestDto;
 import com.zkp.my12306.ntc.dto.ScriptWorkResponseDto;
 import com.zkp.my12306.ntc.dto.ScriptWorkSummaryDto;
 import com.zkp.my12306.ntc.script.dao.entity.CharacterDO;
+import com.zkp.my12306.ntc.script.dao.entity.ScriptMessageDO;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptRecordDO;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.dao.mapper.CharacterMapper;
+import com.zkp.my12306.ntc.script.dao.mapper.ScriptMessageMapper;
 import com.zkp.my12306.ntc.script.dao.mapper.ScriptRecordMapper;
 import com.zkp.my12306.ntc.script.dao.mapper.ScriptWorkMapper;
 import com.zkp.my12306.ntc.script.record.ScriptRecordValidationException;
@@ -32,14 +34,17 @@ public class ScriptWorkServiceImpl implements ScriptWorkService {
     private final ScriptWorkMapper scriptWorkMapper;
     private final ScriptRecordMapper scriptRecordMapper;
     private final CharacterMapper characterMapper;
+    private final ScriptMessageMapper scriptMessageMapper;
 
     public ScriptWorkServiceImpl(
             ScriptWorkMapper scriptWorkMapper,
             ScriptRecordMapper scriptRecordMapper,
-            CharacterMapper characterMapper) {
+            CharacterMapper characterMapper,
+            ScriptMessageMapper scriptMessageMapper) {
         this.scriptWorkMapper = scriptWorkMapper;
         this.scriptRecordMapper = scriptRecordMapper;
         this.characterMapper = characterMapper;
+        this.scriptMessageMapper = scriptMessageMapper;
     }
 
     @Override
@@ -60,23 +65,51 @@ public class ScriptWorkServiceImpl implements ScriptWorkService {
     }
 
     @Override
-    public String resolveWorkId(String currentUser, String workId, String title) {
+    public String requireWorkId(String currentUser, String workId) {
+        validateUser(currentUser);
+        if (workId == null || workId.isBlank()) {
+            throw new ScriptRecordValidationException("作品ID不能为空");
+        }
+        requireOwnedWork(currentUser, workId.trim());
+        return workId.trim();
+    }
+
+    @Override
+    public void backfillLegacyRecords(String currentUser) {
         validateUser(currentUser);
         String userId = currentUser.trim();
-        if (workId != null && !workId.isBlank()) {
-            requireOwnedWork(currentUser, workId.trim());
-            return workId.trim();
+        List<ScriptRecordDO> orphans = scriptRecordMapper.selectList(Wrappers.lambdaQuery(ScriptRecordDO.class)
+                .eq(ScriptRecordDO::getUserId, userId)
+                .and(wrapper -> wrapper.isNull(ScriptRecordDO::getWorkId)
+                        .or()
+                        .eq(ScriptRecordDO::getWorkId, "")));
+        if (orphans.isEmpty()) {
+            return;
         }
-        String normalizedTitle = normalizeTitle(title);
+        Map<String, String> titleToWorkId = new HashMap<>();
+        for (ScriptRecordDO record : orphans) {
+            String title = normalizeTitle(record.getWorkTitle());
+            String resolvedWorkId = titleToWorkId.computeIfAbsent(
+                    title,
+                    key -> findOrCreateWorkIdByTitle(currentUser, key));
+            ScriptRecordDO update = new ScriptRecordDO();
+            update.setId(record.getId());
+            update.setWorkId(resolvedWorkId);
+            scriptRecordMapper.updateById(update);
+        }
+    }
+
+    private String findOrCreateWorkIdByTitle(String currentUser, String title) {
+        String userId = currentUser.trim();
         ScriptWorkDO existing = scriptWorkMapper.selectOne(Wrappers.lambdaQuery(ScriptWorkDO.class)
                 .eq(ScriptWorkDO::getUserId, userId)
-                .eq(ScriptWorkDO::getTitle, normalizedTitle)
+                .eq(ScriptWorkDO::getTitle, title)
                 .orderByDesc(ScriptWorkDO::getUpdateTime)
                 .last("LIMIT 1"));
         if (existing != null) {
             return existing.getId();
         }
-        return createWork(currentUser, new ScriptWorkCreateRequestDto(normalizedTitle)).workId();
+        return createWork(currentUser, new ScriptWorkCreateRequestDto(title)).workId();
     }
 
     @Override
@@ -98,6 +131,7 @@ public class ScriptWorkServiceImpl implements ScriptWorkService {
     @Override
     public List<ScriptWorkSummaryDto> listWorks(String currentUser) {
         validateUser(currentUser);
+        backfillLegacyRecords(currentUser);
         String userId = currentUser.trim();
         List<ScriptWorkDO> works = scriptWorkMapper.selectList(Wrappers.lambdaQuery(ScriptWorkDO.class)
                 .eq(ScriptWorkDO::getUserId, userId)
@@ -156,32 +190,9 @@ public class ScriptWorkServiceImpl implements ScriptWorkService {
                 .eq(ScriptRecordDO::getWorkId, work.getId()));
         characterMapper.delete(Wrappers.lambdaQuery(CharacterDO.class)
                 .eq(CharacterDO::getWorkId, work.getId()));
+        scriptMessageMapper.delete(Wrappers.lambdaQuery(ScriptMessageDO.class)
+                .eq(ScriptMessageDO::getWorkId, work.getId()));
         scriptWorkMapper.deleteById(work.getId());
-    }
-
-    @Override
-    public void deleteWorkByTitle(String currentUser, String workTitle) {
-        validateUser(currentUser);
-        String userId = currentUser.trim();
-        String normalizedTitle = normalizeTitle(workTitle);
-        ScriptWorkDO work = scriptWorkMapper.selectOne(Wrappers.lambdaQuery(ScriptWorkDO.class)
-                .eq(ScriptWorkDO::getUserId, userId)
-                .eq(ScriptWorkDO::getTitle, normalizedTitle)
-                .orderByDesc(ScriptWorkDO::getUpdateTime)
-                .last("LIMIT 1"));
-        if (work != null) {
-            deleteWork(currentUser, work.getId());
-            return;
-        }
-        Long count = scriptRecordMapper.selectCount(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, normalizedTitle));
-        if (count == null || count < 1) {
-            throw new ScriptWorkNotFoundException(normalizedTitle);
-        }
-        scriptRecordMapper.delete(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, normalizedTitle));
     }
 
     @Override

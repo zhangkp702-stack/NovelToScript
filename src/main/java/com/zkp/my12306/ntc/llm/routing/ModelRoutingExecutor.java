@@ -1,6 +1,7 @@
 package com.zkp.my12306.ntc.llm.routing;
 
 import com.zkp.my12306.ntc.llm.client.ChatClient;
+import com.zkp.my12306.ntc.llm.service.ChatMessage;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,13 @@ public class ModelRoutingExecutor {
             String prompt,
             List<ModelTarget> targets,
             Map<String, ChatClient> clientMap) {
+        return executeChat(List.of(new ChatMessage("user", prompt)), targets, clientMap);
+    }
+
+    public ChatResult executeChat(
+            List<ChatMessage> messages,
+            List<ModelTarget> targets,
+            Map<String, ChatClient> clientMap) {
         IllegalStateException lastException = null;
         for (ModelTarget target : targets) {
             String provider = target.candidate().getProvider();
@@ -38,7 +46,7 @@ public class ModelRoutingExecutor {
             }
             try {
                 log.info("开始调用大模型: modelId={}, provider={}", target.id(), provider);
-                ChatResult result = chatClient.chat(prompt, target);
+                ChatResult result = chatClient.chat(messages, target);
                 log.info("大模型调用成功: modelId={}", target.id());
                 healthStore.markSuccess(target.id());
                 return result;

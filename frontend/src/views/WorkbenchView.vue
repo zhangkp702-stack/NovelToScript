@@ -8,6 +8,8 @@ import {
   deleteCharacter,
   deleteWork,
   generateScriptStream,
+  refineScriptStream,
+  listRefineMessages,
   generateWorkTitle,
   updateWorkTitle,
   listCharacters,
@@ -51,6 +53,7 @@ const notice = ref("");
 const noticeType = ref("info");
 const loading = ref(false);
 const streamingIds = ref(new Set());
+const refiningIds = ref(new Set());
 const resultPanelRefs = ref({});
 const streamControllers = new Map();
 let draftSaveTimer = null;
@@ -78,7 +81,9 @@ function createEmptyResult() {
     saved: false,
     recordId: null,
     traceId: "",
-    generationId: ""
+    generationId: "",
+    refineMessages: [],
+    refineInput: ""
   };
 }
 
@@ -122,6 +127,51 @@ function setStreaming(id, streaming) {
   streamingIds.value = next;
   const result = ensureResult(id);
   result.status = streaming ? "streaming" : result.status === "streaming" ? "idle" : result.status;
+}
+
+function setRefining(id, refining) {
+  const next = new Set(refiningIds.value);
+  if (refining) {
+    next.add(id);
+  } else {
+    next.delete(id);
+  }
+  refiningIds.value = next;
+}
+
+function formatRefinePreview(message) {
+  const text = (message?.content || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (message.role === "assistant") {
+    return `已输出修订版剧本（${text.length} 字）`;
+  }
+  const marker = "修改要求：";
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex >= 0) {
+    return text.slice(markerIndex + marker.length).trim() || text.slice(0, 120);
+  }
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+}
+
+async function loadRefineMessages(chapterId, chapterNumber) {
+  if (!workId.value) {
+    return;
+  }
+  try {
+    const { response, payload } = await listRefineMessages(workId.value, chapterNumber);
+    if (!response.ok || !Array.isArray(payload)) {
+      return;
+    }
+    const result = ensureResult(chapterId);
+    result.refineMessages = payload.map((item) => ({
+      role: item.role,
+      content: item.content
+    }));
+  } catch {
+    // 改编历史加载失败不阻断主流程
+  }
 }
 
 function scheduleDraftSave() {
@@ -334,7 +384,6 @@ async function persistChapterResult(index, chapter) {
   }
   const payload = {
     workId: workId.value || null,
-    workTitle: title.value.trim() || "",
     chapterNumber: index + 1,
     chapterContent: chapter.content.trim(),
     scriptContent: result.content,
@@ -582,6 +631,9 @@ async function loadWork(work) {
     } else {
       restoreDraftForWork(work.workId);
     }
+    await Promise.all(
+      chapterItems.value.map((chapter, index) => loadRefineMessages(chapter.id, index + 1))
+    );
     await onRefreshCharacters();
     persistDraft();
   } catch (error) {
@@ -635,7 +687,7 @@ async function onDeleteWork(work = null) {
   }
   loading.value = true;
   try {
-    const { response, payload } = await deleteWork({ workId: targetWorkId, workTitle: title.value });
+    const { response, payload } = await deleteWork(targetWorkId);
     if (response.status === 401) {
       showNotice("error", "登录已过期，请重新登录");
       router.push("/login");
@@ -804,7 +856,10 @@ async function copyChapterResult(id) {
   }
 }
 
-function statusLabel(status) {
+function statusLabel(status, chapterId) {
+  if (refiningIds.value.has(chapterId)) {
+    return "改编中";
+  }
   switch (status) {
     case "streaming":
       return "生成中";
@@ -816,6 +871,109 @@ function statusLabel(status) {
       return "已取消";
     default:
       return "待生成";
+  }
+}
+
+async function onRefineChapter(index) {
+  const chapter = chapterItems.value[index];
+  if (!chapter) {
+    return;
+  }
+  if (!workId.value) {
+    showNotice("info", "请先创建或选择任务");
+    return;
+  }
+  const result = ensureResult(chapter.id);
+  const instruction = (result.refineInput || "").trim();
+  if (!instruction) {
+    showNotice("error", "请输入修改要求");
+    return;
+  }
+  if (!result.content?.trim()) {
+    showNotice("error", "请先生成或加载本章剧本，再继续改编");
+    return;
+  }
+  if (streamingIds.value.has(chapter.id) || refiningIds.value.has(chapter.id)) {
+    return;
+  }
+
+  stopChapterStream(chapter.id);
+  const controller = new AbortController();
+  streamControllers.set(chapter.id, controller);
+
+  const chapterNumber = index + 1;
+  result.error = "";
+  result.warning = "";
+  result.saved = false;
+  result.generationId = crypto.randomUUID();
+  setRefining(chapter.id, true);
+
+  try {
+    const payload = {
+      workId: workId.value,
+      generationId: result.generationId,
+      chapterNumber,
+      instruction,
+      currentScriptContent: result.content.trim()
+    };
+
+    const { response, payload: errorPayload } = await refineScriptStream(
+      payload,
+      {
+        onOpen(modelName) {
+          result.model = modelName;
+          result.content = "";
+        },
+        onMeta(metaJson) {
+          try {
+            const meta = JSON.parse(metaJson);
+            if (meta.traceId) {
+              result.traceId = meta.traceId;
+            }
+            if (meta.generationId) {
+              result.generationId = meta.generationId;
+            }
+          } catch {
+            // 忽略 meta 解析失败
+          }
+        },
+        onToken(token) {
+          result.content += token || "";
+        },
+        onWarn(message) {
+          result.warning = message;
+        },
+        onError(message) {
+          result.error = message || "改编失败";
+        }
+      },
+      controller.signal
+    );
+
+    if (!response.ok) {
+      const message = typeof errorPayload === "object" && errorPayload?.message
+        ? errorPayload.message
+        : `改编失败（HTTP ${response.status}）`;
+      result.error = message;
+      showNotice("error", message);
+      return;
+    }
+
+    if (!result.error) {
+      result.status = "done";
+      result.refineInput = "";
+      await loadRefineMessages(chapter.id, chapterNumber);
+      await persistChapterResult(index, chapter);
+      showNotice("success", `第 ${chapterNumber} 章改编完成`);
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      result.error = error.message;
+      showNotice("error", `改编失败：${error.message}`);
+    }
+  } finally {
+    setRefining(chapter.id, false);
+    streamControllers.delete(chapter.id);
   }
 }
 
@@ -854,7 +1012,6 @@ async function onGenerateChapter(index) {
     const payload = {
       workId: workId.value || null,
       generationId: result.generationId,
-      title: title.value.trim() || null,
       chapterNumber,
       chapterContent: content.trim()
     };
@@ -1091,7 +1248,7 @@ async function onGenerateChapter(index) {
               <h3 class="chapter-result-title">第 {{ index + 1 }} 章</h3>
               <div class="chapter-result-actions">
                 <span class="chapter-status" :data-status="resultsById[chapter.id]?.status || 'idle'">
-                  {{ statusLabel(resultsById[chapter.id]?.status || 'idle') }}
+                  {{ statusLabel(resultsById[chapter.id]?.status || 'idle', chapter.id) }}
                   <template v-if="resultsById[chapter.id]?.saved"> · 已保存</template>
                 </span>
                 <button
@@ -1130,10 +1287,50 @@ async function onGenerateChapter(index) {
               :ref="(el) => { if (el) resultPanelRefs[chapter.id] = el; }"
               class="result-content"
               :class="{
-                streaming: streamingIds.has(chapter.id),
-                empty: !resultsById[chapter.id]?.content && !streamingIds.has(chapter.id)
+                streaming: streamingIds.has(chapter.id) || refiningIds.has(chapter.id),
+                empty: !resultsById[chapter.id]?.content && !streamingIds.has(chapter.id) && !refiningIds.has(chapter.id)
               }"
-            >{{ resultsById[chapter.id]?.content || (streamingIds.has(chapter.id) ? '' : '本章生成结果将在这里展示') }}<span v-if="streamingIds.has(chapter.id)" class="stream-cursor">▋</span></pre>
+            >{{ resultsById[chapter.id]?.content || (streamingIds.has(chapter.id) || refiningIds.has(chapter.id) ? '' : '本章生成结果将在这里展示') }}<span v-if="streamingIds.has(chapter.id) || refiningIds.has(chapter.id)" class="stream-cursor">▋</span></pre>
+
+            <section
+              v-if="resultsById[chapter.id]?.content || resultsById[chapter.id]?.refineMessages?.length"
+              class="refine-panel"
+            >
+              <h4 class="refine-panel-title">改编对话</h4>
+              <p class="refine-panel-hint">基于当前剧本用自然语言提出修改，无需整章重生成。</p>
+              <div
+                v-if="resultsById[chapter.id]?.refineMessages?.length"
+                class="refine-history"
+              >
+                <div
+                  v-for="(message, messageIndex) in resultsById[chapter.id].refineMessages"
+                  :key="messageIndex"
+                  class="refine-message"
+                  :data-role="message.role"
+                >
+                  <span class="refine-role">{{ message.role === 'user' ? '你' : 'AI' }}</span>
+                  <span class="refine-text">{{ formatRefinePreview(message) }}</span>
+                </div>
+              </div>
+              <div class="refine-input-row">
+                <input
+                  v-model="resultsById[chapter.id].refineInput"
+                  type="text"
+                  class="refine-input"
+                  placeholder="例如：把第二幕对白写得更紧张"
+                  :disabled="!workId || streamingIds.has(chapter.id) || refiningIds.has(chapter.id)"
+                  @keyup.enter="onRefineChapter(index)"
+                />
+                <button
+                  type="button"
+                  class="refine-submit-btn"
+                  :disabled="!workId || !resultsById[chapter.id]?.content || streamingIds.has(chapter.id) || refiningIds.has(chapter.id)"
+                  @click="onRefineChapter(index)"
+                >
+                  继续改编
+                </button>
+              </div>
+            </section>
           </div>
         </div>
       </div>

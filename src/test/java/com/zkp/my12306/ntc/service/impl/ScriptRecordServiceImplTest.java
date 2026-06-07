@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,7 +41,7 @@ class ScriptRecordServiceImplTest {
 
     @Test
     void save_newRecord_inserts() {
-        when(scriptWorkService.resolveWorkId("user1", "work-1", "作品A")).thenReturn("work-1");
+        when(scriptWorkService.requireWorkId("user1", "work-1")).thenReturn("work-1");
         ScriptWorkDO work = new ScriptWorkDO();
         work.setId("work-1");
         work.setTitle("作品A");
@@ -50,7 +51,6 @@ class ScriptRecordServiceImplTest {
 
         ScriptSaveRequestDto request = new ScriptSaveRequestDto(
                 "work-1",
-                "作品A",
                 1,
                 "章节内容",
                 "剧本内容",
@@ -77,7 +77,13 @@ class ScriptRecordServiceImplTest {
 
     @Test
     void save_blankScriptContent_throws() {
-        ScriptSaveRequestDto request = new ScriptSaveRequestDto("work-1", "作品", 1, "章节", "  ", null, null, null);
+        ScriptSaveRequestDto request = new ScriptSaveRequestDto("work-1", 1, "章节", "  ", null, null, null);
+        assertThrows(ScriptRecordValidationException.class, () -> service.save("user1", request));
+    }
+
+    @Test
+    void save_missingWorkId_throws() {
+        ScriptSaveRequestDto request = new ScriptSaveRequestDto(null, 1, "章节", "剧本", null, null, null);
         assertThrows(ScriptRecordValidationException.class, () -> service.save("user1", request));
     }
 
@@ -93,9 +99,9 @@ class ScriptRecordServiceImplTest {
     }
 
     @Test
-    void deleteWork_noRecords_throws() {
-        org.mockito.Mockito.doThrow(new ScriptWorkNotFoundException("不存在"))
-                .when(scriptWorkService).deleteWorkByTitle("user1", "不存在");
-        assertThrows(ScriptWorkNotFoundException.class, () -> service.deleteWork("user1", "不存在", null));
+    void deleteWork_notFound_throws() {
+        doThrow(new ScriptWorkNotFoundException("work-missing"))
+                .when(scriptWorkService).requireWorkId("user1", "work-missing");
+        assertThrows(ScriptWorkNotFoundException.class, () -> service.deleteWork("user1", "work-missing"));
     }
 }

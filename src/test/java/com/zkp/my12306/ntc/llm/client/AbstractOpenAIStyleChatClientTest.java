@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
+import com.zkp.my12306.ntc.llm.service.ChatMessage;
 import com.zkp.my12306.ntc.llm.stream.StreamAsyncExecutor;
 import com.zkp.my12306.ntc.llm.stream.sse.OpenAIStyleSseParser;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,9 +67,13 @@ class AbstractOpenAIStyleChatClientTest {
 
         String buildRequestBodyForTest(String prompt, ModelTarget modelTarget, boolean stream) throws Exception {
             Method method = AbstractOpenAIStyleChatClient.class.getDeclaredMethod(
-                    "buildRequestBody", String.class, ModelTarget.class, boolean.class);
+                    "buildRequestBody", List.class, ModelTarget.class, boolean.class);
             method.setAccessible(true);
-            return (String) method.invoke(this, prompt, modelTarget, stream);
+            return (String) method.invoke(
+                    this,
+                    List.of(new ChatMessage("user", prompt)),
+                    modelTarget,
+                    stream);
         }
     }
 }

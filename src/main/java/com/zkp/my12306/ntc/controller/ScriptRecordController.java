@@ -60,11 +60,10 @@ public class ScriptRecordController {
 
     @DeleteMapping("/works")
     public ResponseEntity<?> deleteWork(
-            @RequestParam(value = "workTitle", required = false) String workTitle,
-            @RequestParam(value = "workId", required = false) String workId,
+            @RequestParam("workId") String workId,
             Authentication authentication) {
         try {
-            scriptRecordService.deleteWork(authentication.getName(), workTitle, workId);
+            scriptRecordService.deleteWork(authentication.getName(), workId);
             return ResponseEntity.noContent().build();
         } catch (ScriptRecordNotFoundException | ScriptWorkNotFoundException ex) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponseDto(ex.getMessage()));
@@ -75,16 +74,12 @@ public class ScriptRecordController {
 
     @GetMapping
     public ResponseEntity<?> list(
-            @RequestParam(value = "workTitle", required = false) String workTitle,
-            @RequestParam(value = "workId", required = false) String workId,
+            @RequestParam("workId") String workId,
             Authentication authentication) {
         try {
-            List<ScriptRecordResponseDto> records;
-            if (workId != null && !workId.isBlank()) {
-                records = scriptRecordService.listByWorkId(authentication.getName(), workId);
-            } else {
-                records = scriptRecordService.listByWorkTitle(authentication.getName(), workTitle);
-            }
+            List<ScriptRecordResponseDto> records = scriptRecordService.listByWorkId(
+                    authentication.getName(),
+                    workId);
             return ResponseEntity.ok(records);
         } catch (ScriptWorkNotFoundException | ScriptWorkAccessDeniedException ex) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponseDto(ex.getMessage()));
