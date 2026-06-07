@@ -2,6 +2,7 @@ package com.zkp.my12306.ntc.script.validate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -10,14 +11,35 @@ import java.util.List;
 @Component
 public class ScriptSchemaValidator {
 
+    private static final String NATURAL_SCRIPT_FORMAT = "natural_script";
+
     public void validate(ScriptDocument document) {
-        List<String> errors = collectErrors(document.root());
+        JsonNode root = document.root();
+        if (isNaturalScript(root)) {
+            validateNaturalScript(root);
+            return;
+        }
+        List<String> errors = collectStructuredErrors(root);
         if (!errors.isEmpty()) {
             throw new ScriptSchemaValidationException(String.join("; ", errors));
         }
     }
 
-    List<String> collectErrors(JsonNode root) {
+    private boolean isNaturalScript(JsonNode root) {
+        return root != null
+                && root.isObject()
+                && NATURAL_SCRIPT_FORMAT.equals(root.path("format").asText());
+    }
+
+    private void validateNaturalScript(JsonNode root) {
+        String content = root.path("content").asText("");
+        String error = NaturalScriptFormat.validateStructure(content);
+        if (error != null) {
+            throw new ScriptSchemaValidationException(error);
+        }
+    }
+
+    List<String> collectStructuredErrors(JsonNode root) {
         List<String> errors = new ArrayList<>();
         if (root == null || !root.isObject()) {
             errors.add("根节点必须是对象");

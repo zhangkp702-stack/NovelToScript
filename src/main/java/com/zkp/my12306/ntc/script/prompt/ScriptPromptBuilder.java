@@ -1,38 +1,49 @@
 package com.zkp.my12306.ntc.script.prompt;
 
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 
-import java.util.List;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 @Component
 public class ScriptPromptBuilder {
 
-    public static final String SCHEMA_VERSION = "1.0.0";
+    private static final String PROMPT_RESOURCE = "prompt/script_generation.md";
+    private static final String TITLE_PLACEHOLDER = "{{作品标题}}";
+    private static final String CHAPTER_NUMBER_PLACEHOLDER = "{{章节编号}}";
+    private static final String CHAPTER_CONTENT_PLACEHOLDER = "{{章节内容}}";
+    private static final String SOURCE_CHARS_PLACEHOLDER = "{{原文字数}}";
+    private static final String MIN_SCRIPT_CHARS_PLACEHOLDER = "{{最少正文字数}}";
+    private static final double MIN_SCRIPT_RATIO = 0.65;
 
-    public String build(String title, List<String> chapters) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("你是专业的小说改编编剧。请将以下小说章节转换为结构化剧本初稿。\n\n");
-        builder.append("输出要求：\n");
-        builder.append("- 仅输出 YAML，不要输出解释性文字\n");
-        builder.append("- 不要使用 markdown 代码块包裹\n");
-        builder.append("- 必须包含顶层字段：metadata、characters、scenes、notes\n");
-        builder.append("- metadata 必须包含：title、source_type、language、generated_at、schema_version\n");
-        builder.append("- metadata.schema_version 固定为 ").append(SCHEMA_VERSION).append('\n');
-        builder.append("- metadata.source_type 固定为 novel\n");
-        builder.append("- metadata.language 固定为 zh-CN\n");
-        builder.append("- characters 每项必须包含：id、name、role_type、description\n");
-        builder.append("- scenes 每项必须包含：scene_id、scene_title、location、time、characters、action、dialogues\n");
-        builder.append("- dialogues 每项必须包含：speaker、content\n");
-        builder.append("- source_summary.chapter_count 应等于输入章节数\n\n");
+    private final String templateText;
 
-        if (title != null && !title.isBlank()) {
-            builder.append("小说标题：").append(title.trim()).append('\n');
+    public ScriptPromptBuilder() {
+        this.templateText = loadResource(PROMPT_RESOURCE);
+    }
+
+    public String build(String title, int chapterNumber, String chapterContent) {
+        String resolvedTitle = title == null || title.isBlank() ? "未提供" : title.trim();
+        String normalizedContent = chapterContent == null ? "" : chapterContent.trim();
+        int sourceChars = normalizedContent.length();
+        int minScriptChars = Math.max(400, (int) Math.round(sourceChars * MIN_SCRIPT_RATIO));
+        String chapterBlock = "【第 " + chapterNumber + " 章】\n" + normalizedContent;
+        return templateText
+                .replace(TITLE_PLACEHOLDER, resolvedTitle)
+                .replace(CHAPTER_NUMBER_PLACEHOLDER, String.valueOf(chapterNumber))
+                .replace(SOURCE_CHARS_PLACEHOLDER, String.valueOf(sourceChars))
+                .replace(MIN_SCRIPT_CHARS_PLACEHOLDER, String.valueOf(minScriptChars))
+                .replace(CHAPTER_CONTENT_PLACEHOLDER, chapterBlock);
+    }
+
+    private String loadResource(String path) {
+        try (InputStream inputStream = new ClassPathResource(path).getInputStream()) {
+            return StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            throw new IllegalStateException("无法加载剧本 prompt 资源: " + path, ex);
         }
-        builder.append("章节数量：").append(chapters.size()).append('\n');
-        for (int i = 0; i < chapters.size(); i++) {
-            builder.append("第").append(i + 1).append("章：\n");
-            builder.append(chapters.get(i).trim()).append("\n\n");
-        }
-        return builder.toString();
     }
 }

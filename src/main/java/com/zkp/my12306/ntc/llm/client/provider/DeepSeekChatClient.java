@@ -14,9 +14,7 @@ public class DeepSeekChatClient extends AbstractOpenAIStyleChatClient {
             OpenAIStyleSseParser openAIStyleSseParser,
             StreamAsyncExecutor streamAsyncExecutor,
             AIModelProperties aiModelProperties) {
-        super(objectMapper, openAIStyleSseParser, streamAsyncExecutor,
-                aiModelProperties.getSelection().getConnectTimeoutMs(),
-                aiModelProperties.getSelection().getRequestTimeoutMs());
+        super(objectMapper, openAIStyleSseParser, streamAsyncExecutor, aiModelProperties);
     }
 
     @Override

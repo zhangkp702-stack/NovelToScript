@@ -123,11 +123,19 @@ public class RoutingLLMService implements LLMService {
                     activeDelegate.set(delegate);
                     long timeoutMs = aiModelProperties.getSelection().getFirstTokenTimeoutMs();
                     ProbeStreamBridge.FirstEvent firstEvent = bridge.awaitFirstEvent(timeoutMs);
-                    if (firstEvent.type() == ProbeStreamBridge.FirstEventType.TOKEN
-                            || firstEvent.type() == ProbeStreamBridge.FirstEventType.COMPLETE) {
+                    if (firstEvent.type() == ProbeStreamBridge.FirstEventType.TOKEN) {
                         bufferedCallback.promoteAndFlush();
                         healthStore.markSuccess(target.id());
                         return;
+                    }
+                    if (firstEvent.type() == ProbeStreamBridge.FirstEventType.COMPLETE) {
+                        attemptActive.set(false);
+                        delegate.cancel();
+                        bufferedCallback.clearBuffer();
+                        healthStore.markFailure(target.id());
+                        lastException = new IllegalStateException("流式模型返回空内容：" + target.id());
+                        log.warn("流式模型未返回有效内容，尝试下一个: modelId={}", target.id());
+                        continue;
                     }
                     attemptActive.set(false);
                     delegate.cancel();

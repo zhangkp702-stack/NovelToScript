@@ -17,6 +17,7 @@ public class AIModelProperties {
     private Map<String, ProviderConfig> providers = new HashMap<>();
     private ModelGroup chat = new ModelGroup();
     private Selection selection = new Selection();
+    private Generation generation = new Generation();
     private StreamExecutor streamExecutor = new StreamExecutor();
 
     @Data
@@ -49,6 +50,14 @@ public class AIModelProperties {
         private Integer firstTokenTimeoutMs = 60000;
         private Integer connectTimeoutMs = 10000;
         private Integer requestTimeoutMs = 120000;
+    }
+
+    @Data
+    public static class Generation {
+        private Integer maxTokens = 8192;
+        private Double temperature = 0.3;
+        private Double frequencyPenalty = 0.6;
+        private Double presencePenalty = 0.0;
     }
 
     @Data

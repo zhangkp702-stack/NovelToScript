@@ -17,6 +17,37 @@ class ScriptSchemaValidatorTest {
     private final ScriptSchemaValidator validator = new ScriptSchemaValidator();
 
     @Test
+    void validate_currentPromptFormat_passes() {
+        String script = """
+                剧本标题：《雨夜归来》
+                原章节标题：第一章
+
+                场景一：凌晨来信
+                场景头：内景，卧室，凌晨
+
+                剧本正文：
+                旁白：凌晨三点，林川被手机惊醒。
+                """;
+        ScriptDocument document = parser.parse(script);
+
+        assertDoesNotThrow(() -> validator.validate(document));
+    }
+
+    @Test
+    void validate_naturalScriptMissingScene_fails() {
+        String script = """
+                剧本标题：《雨夜归来》
+                原章节标题：第一章
+                """;
+        ScriptDocument document = parser.parse(script);
+
+        ScriptSchemaValidationException ex = assertThrows(
+                ScriptSchemaValidationException.class,
+                () -> validator.validate(document));
+        assertTrue(ex.getMessage().contains("场景"));
+    }
+
+    @Test
     void validate_sampleDocument_passes() throws Exception {
         String yaml = new ClassPathResource("script/sample_valid_script.yaml")
                 .getContentAsString(StandardCharsets.UTF_8);

@@ -2,6 +2,7 @@ package com.zkp.my12306.ntc.llm.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import com.zkp.my12306.ntc.llm.enums.ModelCapability;
 import com.zkp.my12306.ntc.llm.http.ModelUrlResolver;
 import com.zkp.my12306.ntc.llm.routing.ModelTarget;
@@ -14,11 +15,13 @@ import com.zkp.my12306.ntc.llm.stream.sse.OpenAIStyleSseParser;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -31,19 +34,20 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     private final StreamAsyncExecutor streamAsyncExecutor;
     private final HttpClient httpClient;
     private final int requestTimeoutMs;
+    private final AIModelProperties.Generation generation;
 
     protected AbstractOpenAIStyleChatClient(
             ObjectMapper objectMapper,
             OpenAIStyleSseParser openAIStyleSseParser,
             StreamAsyncExecutor streamAsyncExecutor,
-            int connectTimeoutMs,
-            int requestTimeoutMs) {
+            AIModelProperties aiModelProperties) {
         this.objectMapper = objectMapper;
         this.openAIStyleSseParser = openAIStyleSseParser;
         this.streamAsyncExecutor = streamAsyncExecutor;
-        this.requestTimeoutMs = requestTimeoutMs;
+        this.requestTimeoutMs = aiModelProperties.getSelection().getRequestTimeoutMs();
+        this.generation = aiModelProperties.getGeneration();
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(connectTimeoutMs))
+                .connectTimeout(Duration.ofMillis(aiModelProperties.getSelection().getConnectTimeoutMs()))
                 .build();
     }
 
@@ -52,9 +56,12 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         try {
             String body = buildRequestBody(prompt, modelTarget, false);
             HttpRequest request = buildRequest(modelTarget, body);
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("模型请求失败，provider=" + provider() + ", status=" + response.statusCode());
+                throw new IllegalStateException(
+                        "模型请求失败，provider=" + provider()
+                                + ", status=" + response.statusCode()
+                                + ", body=" + abbreviate(response.body()));
             }
             return parseChatResponse(response.body(), modelTarget.id());
         } catch (Exception ex) {
@@ -80,7 +87,9 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                     return CompletableFuture.completedFuture(null);
                 }
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    callback.onError(new IllegalStateException("流式请求失败，status=" + response.statusCode()));
+                    String errorBody = readErrorBody(response.body());
+                    callback.onError(new IllegalStateException(
+                            "流式请求失败，status=" + response.statusCode() + ", body=" + abbreviate(errorBody)));
                     return CompletableFuture.completedFuture(null);
                 }
                 InputStream stream = response.body();
@@ -118,7 +127,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 .uri(URI.create(url))
                 .timeout(Duration.ofMillis(requestTimeoutMs))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body));
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
         if (apiKey != null && !apiKey.isBlank()) {
             builder.header("Authorization", "Bearer " + apiKey);
         }
@@ -126,11 +135,49 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
     }
 
     private String buildRequestBody(String prompt, ModelTarget modelTarget, boolean stream) throws IOException {
-        Map<String, Object> payload = Map.of(
-                "model", modelTarget.candidate().getModel(),
-                "stream", stream,
-                "messages", List.of(Map.of("role", "user", "content", prompt)));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", modelTarget.candidate().getModel());
+        payload.put("stream", stream);
+        payload.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        if (generation.getMaxTokens() != null) {
+            payload.put("max_tokens", generation.getMaxTokens());
+        }
+        if (generation.getTemperature() != null) {
+            payload.put("temperature", generation.getTemperature());
+        }
+        if (generation.getFrequencyPenalty() != null) {
+            payload.put("frequency_penalty", generation.getFrequencyPenalty());
+        }
+        if (generation.getPresencePenalty() != null) {
+            payload.put("presence_penalty", generation.getPresencePenalty());
+        }
+        applyProviderOptions(payload, modelTarget.candidate().getModel());
         return objectMapper.writeValueAsString(payload);
+    }
+
+    private void applyProviderOptions(Map<String, Object> payload, String model) {
+        if (model == null || model.isBlank()) {
+            return;
+        }
+        if (requiresDisableThinking(model)) {
+            payload.put("enable_thinking", false);
+        }
+    }
+
+    private boolean requiresDisableThinking(String model) {
+        return model.startsWith("deepseek-ai/DeepSeek-V3")
+                || model.startsWith("deepseek-ai/DeepSeek-V4");
+    }
+
+    private String readErrorBody(InputStream body) {
+        if (body == null) {
+            return "";
+        }
+        try (body) {
+            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            return "";
+        }
     }
 
     private ChatResult parseChatResponse(String responseBody, String modelName) throws IOException {
@@ -147,6 +194,14 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         } finally {
             closeQuietly(body);
         }
+    }
+
+    private String abbreviate(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 300 ? normalized : normalized.substring(0, 300) + "...";
     }
 
     private void closeQuietly(InputStream body) {

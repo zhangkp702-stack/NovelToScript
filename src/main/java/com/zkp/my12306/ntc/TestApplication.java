@@ -7,7 +7,8 @@ import org.mybatis.spring.annotation.MapperScan;
 @SpringBootApplication
 @MapperScan({
         "com.zkp.my12306.ntc.mapper",
-        "com.zkp.my12306.ntc.llm.dao.mapper"
+        "com.zkp.my12306.ntc.llm.dao.mapper",
+        "com.zkp.my12306.ntc.script.dao.mapper"
 })
 public class TestApplication {
 

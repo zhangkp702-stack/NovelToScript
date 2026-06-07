@@ -1,4 +1,9 @@
 package com.zkp.my12306.ntc.dto;
 
-public record ScriptGenerateResponseDto(String content, String modelName) {
+import java.util.Map;
+
+public record ScriptGenerateResponseDto(
+        String modelName,
+        Map<String, Object> script,
+        String rawContent) {
 }

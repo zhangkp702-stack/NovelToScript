@@ -1,25 +1,17 @@
-export const MIN_CHAPTERS = 3;
+export const MAX_CHAPTER_CONTENT_LENGTH = 50_000;
 
-export function countFilledChapters(chapters) {
-  return chapters.filter((chapter) => chapter.trim().length > 0).length;
-}
-
-export function validateChapters(chapters) {
-  const filledCount = countFilledChapters(chapters);
-  if (filledCount < MIN_CHAPTERS) {
+export function validateChapterContent(content, chapterNumber) {
+  if (!content || !content.trim()) {
     return {
       ok: false,
-      filledCount,
-      message: `请至少填写 ${MIN_CHAPTERS} 个章节内容后再提交（当前已填写 ${filledCount} 个）`
+      message: `请先填写第 ${chapterNumber} 章内容`
     };
   }
-  return {
-    ok: true,
-    filledCount,
-    message: ""
-  };
-}
-
-export function collectFilledChapters(chapters) {
-  return chapters.map((chapter) => chapter.trim()).filter((chapter) => chapter.length > 0);
+  if (content.length > MAX_CHAPTER_CONTENT_LENGTH) {
+    return {
+      ok: false,
+      message: `第 ${chapterNumber} 章内容超过 ${MAX_CHAPTER_CONTENT_LENGTH} 字上限`
+    };
+  }
+  return { ok: true, message: "" };
 }
