@@ -74,24 +74,27 @@ function commitRename(work) {
           :disabled="loading"
           @click="emit('new')"
         >
-          + 新建任务
+          <span class="task-new-icon" aria-hidden="true">+</span>
+          <span>新建任务</span>
         </button>
         <button
           type="button"
           class="task-collapse-btn"
-          :title="collapsed ? '展开任务列表' : '隐藏任务列表'"
+          :title="collapsed ? '展开任务列表' : '收起任务列表'"
           @click="emit('toggle-collapse')"
         >
-          {{ collapsed ? "»" : "«" }}
+          <span class="task-collapse-icon" aria-hidden="true">{{ collapsed ? "›" : "‹" }}</span>
         </button>
       </div>
+
+      <p v-if="!collapsed" class="task-sidebar-label">我的任务</p>
 
       <ul v-if="!collapsed" class="task-list">
         <li
           v-for="work in works"
           :key="work.workId"
           class="task-list-item"
-          :class="{ active: work.workId === activeWorkId }"
+          :class="{ active: work.workId === activeWorkId, editing: editingWorkId === work.workId }"
         >
           <input
             v-if="editingWorkId === work.workId"
@@ -104,39 +107,44 @@ function commitRename(work) {
             @keydown.esc.prevent="cancelRename"
             @blur="commitRename(work)"
           />
-          <button
-            v-else
-            type="button"
-            class="task-title-btn"
-            :disabled="loading"
-            :title="`${displayTitle(work)}（双击可重命名）`"
-            @click="emit('select', work)"
-            @dblclick.stop="startRename(work)"
-          >
-            <span class="task-title-text">
-              {{ namingWorkId === work.workId ? "命名中..." : displayTitle(work) }}
-            </span>
-          </button>
-          <button
-            v-if="work.workId === activeWorkId && editingWorkId !== work.workId"
-            type="button"
-            class="task-rename-btn"
-            :disabled="loading"
-            title="重命名"
-            @click="startRename(work)"
-          >
-            ✎
-          </button>
-          <button
-            v-if="work.workId === activeWorkId && editingWorkId !== work.workId"
-            type="button"
-            class="task-delete-btn"
-            :disabled="loading"
-            title="删除当前任务"
-            @click="emit('delete', work)"
-          >
-            ×
-          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="task-title-btn"
+              :disabled="loading"
+              :title="`${displayTitle(work)}（双击可重命名）`"
+              @click="emit('select', work)"
+              @dblclick.stop="startRename(work)"
+            >
+              <span class="task-item-dot" aria-hidden="true" />
+              <span class="task-title-text">
+                {{ namingWorkId === work.workId ? "命名中..." : displayTitle(work) }}
+              </span>
+            </button>
+            <div
+              v-if="work.workId === activeWorkId"
+              class="task-item-actions"
+            >
+              <button
+                type="button"
+                class="task-icon-btn"
+                :disabled="loading"
+                title="重命名"
+                @click="startRename(work)"
+              >
+                <span aria-hidden="true">✎</span>
+              </button>
+              <button
+                type="button"
+                class="task-icon-btn task-icon-btn-danger"
+                :disabled="loading"
+                title="删除当前任务"
+                @click="emit('delete', work)"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          </template>
         </li>
       </ul>
     </div>

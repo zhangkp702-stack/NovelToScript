@@ -40,3 +40,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
+
+### Local / JVM ###
+hs_err_pid*.log
+_prompt_head.md

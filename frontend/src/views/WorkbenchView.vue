@@ -51,6 +51,7 @@ const chapterItems = ref([createChapterItem()]);
 const resultsById = ref({});
 const notice = ref("");
 const noticeType = ref("info");
+const currentUsername = ref("");
 const loading = ref(false);
 const streamingIds = ref(new Set());
 const refiningIds = ref(new Set());
@@ -105,6 +106,7 @@ function syncResultFromActiveVersion(result) {
   if (active) {
     result.content = active.content;
     result.warning = active.warning;
+    result.error = active.error || "";
   }
 }
 
@@ -130,6 +132,10 @@ function hasScriptContent(result) {
 function nextRefineLabel(result) {
   const count = (result.versions || []).filter((version) => version.kind === "refine").length;
   return `改编 ${count + 1}`;
+}
+
+function hasRefineVersions(result) {
+  return (result?.versions || []).some((version) => version.kind === "refine");
 }
 
 function setActiveVersion(chapterId, versionId) {
@@ -223,22 +229,6 @@ function setRefining(id, refining) {
   refiningIds.value = next;
 }
 
-function formatRefinePreview(message) {
-  const text = (message?.content || "").trim();
-  if (!text) {
-    return "";
-  }
-  if (message.role === "assistant") {
-    return `已输出修订版剧本（${text.length} 字）`;
-  }
-  const marker = "修改要求：";
-  const markerIndex = text.indexOf(marker);
-  if (markerIndex >= 0) {
-    return text.slice(markerIndex + marker.length).trim() || text.slice(0, 120);
-  }
-  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
-}
-
 function extractRefineInstruction(userContent) {
   const marker = "修改要求：";
   const markerIndex = userContent.indexOf(marker);
@@ -295,13 +285,14 @@ function rebuildVersionsFromHistory(result, messages, fallbackContent = "") {
     }
   }
 
-  if (!versions.length && fallbackContent?.trim()) {
-    versions.push(createScriptVersion({
+  const hasGenerateVersion = versions.some((version) => version.kind === "generate");
+  if (!hasGenerateVersion && fallbackContent?.trim()) {
+    versions.unshift(createScriptVersion({
       kind: "generate",
       label: "初稿",
       content: sanitizeYamlDisplayText(fallbackContent),
       status: "done",
-      collapsed: false
+      collapsed: true
     }));
   }
 
@@ -354,6 +345,49 @@ function persistDraft() {
   });
 }
 
+function normalizeDraftVersion(version) {
+  return {
+    id: version?.id || crypto.randomUUID(),
+    kind: version?.kind || "generate",
+    label: version?.label || "初稿",
+    instruction: version?.instruction || "",
+    content: version?.content || "",
+    warning: version?.warning || "",
+    error: version?.error || "",
+    status: version?.status === "streaming" ? "idle" : (version?.status || "done"),
+    collapsed: Boolean(version?.collapsed)
+  };
+}
+
+function normalizeDraftResult(result) {
+  if (!result || typeof result !== "object") {
+    return createEmptyResult();
+  }
+  const versions = Array.isArray(result.versions)
+    ? result.versions.map((version) => normalizeDraftVersion(version))
+    : [];
+  const normalized = {
+    content: result.content || "",
+    model: result.model || "",
+    status: result.status === "streaming" ? "idle" : (result.status || "idle"),
+    error: result.error || "",
+    warning: result.warning || "",
+    saved: result.saved || false,
+    recordId: result.recordId || null,
+    traceId: result.traceId || "",
+    generationId: result.generationId || "",
+    versions,
+    activeVersionId: result.activeVersionId
+      || (versions.length ? versions[versions.length - 1].id : null),
+    refineMessages: [],
+    refineInput: result.refineInput || ""
+  };
+  if (versions.length) {
+    syncResultFromActiveVersion(normalized);
+  }
+  return normalized;
+}
+
 function applyDraft(draft) {
   if (!draft) {
     chapterItems.value = [createChapterItem()];
@@ -372,17 +406,7 @@ function applyDraft(draft) {
     resultsById.value = Object.fromEntries(
       Object.entries(draft.resultsById).map(([id, result]) => [
         id,
-        {
-          content: result?.content || "",
-          model: result?.model || "",
-          status: result?.status || "idle",
-          error: result?.error || "",
-          warning: result?.warning || "",
-          saved: result?.saved || false,
-          recordId: result?.recordId || null,
-          traceId: result?.traceId || "",
-          generationId: result?.generationId || ""
-        }
+        normalizeDraftResult(result)
       ])
     );
   } else {
@@ -1054,7 +1078,19 @@ function handleBeforeUnload() {
   persistDraft();
 }
 
+async function loadCurrentUsername() {
+  try {
+    const { response, payload } = await currentUser();
+    if (response.ok && payload?.username) {
+      currentUsername.value = payload.username;
+    }
+  } catch {
+    // 用户名展示失败不阻断工作台
+  }
+}
+
 onMounted(async () => {
+  await loadCurrentUsername();
   await onRefreshWorks();
   const state = loadWorkbenchState();
   const initialWork = state.activeWorkId
@@ -1090,22 +1126,6 @@ async function scrollResultToBottom(id) {
   const panel = resultPanelRefs.value[id];
   if (panel) {
     panel.scrollTop = panel.scrollHeight;
-  }
-}
-
-async function onLoadCurrentUser() {
-  loading.value = true;
-  try {
-    const { response, payload } = await currentUser();
-    if (response.ok) {
-      showNotice("success", `当前用户：${payload.username}`);
-    } else {
-      showNotice("error", "获取当前用户失败，请重新登录");
-    }
-  } catch (error) {
-    showNotice("error", `请求异常：${error.message}`);
-  } finally {
-    loading.value = false;
   }
 }
 
@@ -1342,11 +1362,18 @@ async function onGenerateChapter(index) {
     return;
   }
 
+  const result = ensureResult(chapter.id);
+  if (hasRefineVersions(result)) {
+    const confirmed = window.confirm("重新生成将清空本章所有改编版本，是否继续？");
+    if (!confirmed) {
+      return;
+    }
+  }
+
   stopChapterStream(chapter.id);
   const controller = new AbortController();
   streamControllers.set(chapter.id, controller);
 
-  const result = ensureResult(chapter.id);
   const generateVersion = createScriptVersion({
     kind: "generate",
     label: "初稿",
@@ -1471,9 +1498,16 @@ async function onGenerateChapter(index) {
           <template v-if="title">当前任务：{{ displayWorkTitle(title) }}</template>
         </p>
       </div>
-      <div class="button-row header-actions">
-        <button class="secondary" :disabled="loading" @click="onLoadCurrentUser">查看当前用户</button>
-        <button class="secondary" :disabled="loading" @click="onLogout">退出登录</button>
+      <div class="header-actions">
+        <span v-if="currentUsername" class="user-badge">{{ currentUsername }}</span>
+        <button
+          type="button"
+          class="logout-btn"
+          :disabled="loading"
+          @click="onLogout"
+        >
+          退出登录
+        </button>
       </div>
     </header>
 
@@ -1495,13 +1529,19 @@ async function onGenerateChapter(index) {
 
       <section class="workbench-layout">
       <div class="workbench-panel input-panel">
-        <h2>用户提交</h2>
+        <header class="panel-header">
+          <div>
+            <h2 class="panel-title">用户提交</h2>
+            <p class="panel-subtitle">填写章节原文、维护人物，并按章触发生成</p>
+          </div>
+        </header>
 
         <section class="task-title-field">
-          <label for="task-title">任务名称</label>
+          <label for="task-title" class="field-label">任务名称</label>
           <input
             id="task-title"
             v-model="taskTitleInput"
+            class="field-input"
             :disabled="!workId || titleSaving || Boolean(titleNamingWorkId)"
             maxlength="32"
             placeholder="自定义名称；留空则根据第一章内容自动生成短标题"
@@ -1514,10 +1554,13 @@ async function onGenerateChapter(index) {
 
         <section class="character-manager">
           <div class="character-manager-header">
-            <h3>人物设定</h3>
+            <div>
+              <h3 class="section-title">人物设定</h3>
+              <p class="section-subtitle">跨章节共享，生成时自动注入 Prompt</p>
+            </div>
             <button
               type="button"
-              class="secondary work-action-btn"
+              class="ghost-btn work-action-btn"
               :disabled="characterLoading || !workId"
               @click="onRefreshCharacters"
             >
@@ -1534,8 +1577,11 @@ async function onGenerateChapter(index) {
                 :class="{ active: editingCharacterId === character.id }"
               >
                 <button type="button" class="character-select-btn" @click="startEditCharacter(character)">
-                  <span class="character-name">{{ character.name }}</span>
-                  <span v-if="character.displayName" class="character-alias">{{ character.displayName }}</span>
+                  <span class="character-avatar" aria-hidden="true">{{ (character.name || "?").slice(0, 1) }}</span>
+                  <span class="character-meta">
+                    <span class="character-name">{{ character.name }}</span>
+                    <span v-if="character.displayName" class="character-alias">{{ character.displayName }}</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1579,7 +1625,7 @@ async function onGenerateChapter(index) {
               <div class="character-form-actions">
                 <button
                   type="button"
-                  class="secondary work-action-btn"
+                  class="primary-btn work-action-btn"
                   :disabled="characterLoading"
                   @click="onSaveCharacter"
                 >
@@ -1609,7 +1655,12 @@ async function onGenerateChapter(index) {
       </div>
 
       <div class="workbench-panel output-panel">
-        <h2>大模型结果</h2>
+        <header class="panel-header">
+          <div>
+            <h2 class="panel-title">大模型结果</h2>
+            <p class="panel-subtitle">按章流式输出 YAML 剧本，支持多轮改编与版本切换</p>
+          </div>
+        </header>
 
         <div class="chapter-results">
           <div
