@@ -612,19 +612,30 @@ button:disabled {
   color: #92400e;
 }
 
-.chapter-results {
+.output-panel {
+  min-height: 0;
+}
+
+.output-panel .chapter-results {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding-right: 4px;
 }
 
 .chapter-result-item {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e8edf5;
+  border-radius: 12px;
+  background: #f8fafc;
+  overflow: hidden;
 }
 
 .chapter-result-header {
@@ -632,7 +643,6 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
 }
 
 .chapter-result-title {
@@ -686,10 +696,9 @@ button:disabled {
   font-size: 13px;
 }
 
-.output-panel .chapter-result-item .result-content {
-  min-height: 180px;
-  max-height: 320px;
-  overflow-y: auto;
+.output-panel .chapter-result-item .version-card-body .result-content {
+  min-height: 120px;
+  max-height: 280px;
 }
 
 .result-content.empty {
@@ -1071,6 +1080,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .version-empty {
@@ -1089,6 +1099,9 @@ button:disabled {
   border-radius: 10px;
   background: #fff;
   overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1104,6 +1117,7 @@ button:disabled {
 .version-card-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 12px;
   background: #f8fafc;
@@ -1199,10 +1213,16 @@ button:disabled {
 
 .version-card-body {
   padding: 0 12px 12px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .version-card-body .result-content {
   max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .version-warning,
@@ -1211,7 +1231,6 @@ button:disabled {
 }
 
 .refine-panel {
-  margin-top: 12px;
   padding: 12px;
   border-radius: 8px;
   border: 1px solid #e5e7eb;
