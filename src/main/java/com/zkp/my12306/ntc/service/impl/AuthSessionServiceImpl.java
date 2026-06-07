@@ -2,7 +2,10 @@ package com.zkp.my12306.ntc.service.impl;
 
 import com.zkp.my12306.ntc.dto.LoginRequestDto;
 import com.zkp.my12306.ntc.dto.LoginResponseDto;
+import com.zkp.my12306.ntc.dto.RegisterRequestDto;
+import com.zkp.my12306.ntc.dto.RegisterResponseDto;
 import com.zkp.my12306.ntc.dto.UserInfoResponseDto;
+import org.springframework.dao.DuplicateKeyException;
 import com.zkp.my12306.ntc.entity.NtcUserEntity;
 import com.zkp.my12306.ntc.service.AuthSessionService;
 import com.zkp.my12306.ntc.service.AuthUserService;
@@ -68,6 +71,26 @@ public class AuthSessionServiceImpl implements AuthSessionService {
 
         authUserService.updateLastLoginAtByAccount(authentication.getName());
         return new LoginResponseDto(authentication.getName(), resolveCurrentSessionId());
+    }
+
+    @Override
+    public RegisterResponseDto register(RegisterRequestDto request) {
+        if (request.account() == null || request.account().isBlank()
+                || request.password() == null || request.password().isBlank()) {
+            throw new IllegalArgumentException("账号和密码不能为空");
+        }
+        String account = request.account().trim();
+        if (authUserService.findByAccount(account).isPresent()) {
+            throw new IllegalStateException("账户已经存在，请直接登录");
+        }
+
+        try {
+            String passwordHash = passwordEncoder.encode(request.password());
+            authUserService.createUser(account, account, passwordHash);
+            return new RegisterResponseDto("账户创建成功，请登录");
+        } catch (DuplicateKeyException ex) {
+            throw new IllegalStateException("账户已经存在，请直接登录");
+        }
     }
 
     @Override
