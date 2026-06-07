@@ -334,6 +334,90 @@ button:disabled {
   }
 }
 
+.work-manager {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.work-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.work-manager-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.work-empty {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.work-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.work-list-item.active .work-select-btn {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.work-select-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+}
+
+.work-select-title {
+  font-size: 13px;
+  color: #111827;
+}
+
+.work-select-meta {
+  font-size: 12px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.work-manager-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.work-action-btn,
+.work-delete-btn {
+  flex: 1;
+  font-size: 13px;
+}
+
+.work-delete-btn {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .work-title-row {
   display: flex;
   gap: 8px;

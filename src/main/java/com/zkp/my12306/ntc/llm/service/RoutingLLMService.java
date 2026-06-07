@@ -85,6 +85,9 @@ public class RoutingLLMService implements LLMService {
                     log.warn("模型熔断中，跳过流式调用: modelId={}", target.id());
                     continue;
                 }
+                long timeoutMs = aiModelProperties.getSelection().getFirstTokenTimeoutMs();
+                log.info("开始流式调用大模型: modelId={}, provider={}, 首包超时={}ms",
+                        target.id(), target.candidate().getProvider(), timeoutMs);
                 AtomicBoolean attemptActive = new AtomicBoolean(true);
                 BufferedProbeCallback bufferedCallback = null;
                 try {
@@ -121,9 +124,9 @@ public class RoutingLLMService implements LLMService {
                     ProbeStreamBridge bridge = new ProbeStreamBridge(bufferedCallback);
                     StreamCancellationHandle delegate = chatClient.streamChat(prompt, target, bridge);
                     activeDelegate.set(delegate);
-                    long timeoutMs = aiModelProperties.getSelection().getFirstTokenTimeoutMs();
                     ProbeStreamBridge.FirstEvent firstEvent = bridge.awaitFirstEvent(timeoutMs);
                     if (firstEvent.type() == ProbeStreamBridge.FirstEventType.TOKEN) {
+                        log.info("流式首包已返回，开始推送: modelId={}", target.id());
                         bufferedCallback.promoteAndFlush();
                         healthStore.markSuccess(target.id());
                         return;

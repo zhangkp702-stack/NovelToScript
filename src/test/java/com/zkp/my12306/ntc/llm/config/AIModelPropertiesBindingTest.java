@@ -29,7 +29,7 @@ class AIModelPropertiesBindingTest {
                 aiModelProperties.getProviders().get("bailian").getEndpoints().get("chat"));
 
         assertNotNull(aiModelProperties.getChat());
-        assertEquals("siliconflow-primary", aiModelProperties.getChat().getDefaultModel());
+        assertEquals("siliconflow-qwen-primary", aiModelProperties.getChat().getDefaultModel());
         assertEquals(6, aiModelProperties.getChat().getCandidates().size());
 
         AIModelProperties.ModelCandidate ollama = aiModelProperties.getChat().getCandidates().stream()
@@ -40,11 +40,22 @@ class AIModelPropertiesBindingTest {
         assertEquals("qwen2.5:7b", ollama.getModel());
         assertFalse(ollama.getEnabled());
 
-        AIModelProperties.ModelCandidate siliconflow = aiModelProperties.getChat().getCandidates().stream()
+        AIModelProperties.ModelCandidate siliconflowPrimary = aiModelProperties.getChat().getCandidates().stream()
+                .filter(candidate -> "siliconflow-qwen-primary".equals(candidate.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("siliconflow", siliconflowPrimary.getProvider());
+        assertEquals("deepseek-ai/DeepSeek-V4-Pro", siliconflowPrimary.getModel());
+        assertEquals(1, siliconflowPrimary.getPriority());
+        assertTrue(siliconflowPrimary.getEnabled());
+
+        AIModelProperties.ModelCandidate siliconflowBackup = aiModelProperties.getChat().getCandidates().stream()
                 .filter(candidate -> "siliconflow-primary".equals(candidate.getId()))
                 .findFirst()
                 .orElseThrow();
-        assertTrue(siliconflow.getEnabled());
+        assertEquals("Qwen/Qwen2.5-14B-Instruct", siliconflowBackup.getModel());
+        assertEquals(2, siliconflowBackup.getPriority());
+        assertTrue(siliconflowBackup.getEnabled());
 
         AIModelProperties.ModelCandidate openai = aiModelProperties.getChat().getCandidates().stream()
                 .filter(candidate -> "openai-gpt4o-mini".equals(candidate.getId()))
@@ -65,10 +76,10 @@ class AIModelPropertiesBindingTest {
         assertEquals(60000, aiModelProperties.getSelection().getFirstTokenTimeoutMs());
         assertEquals(10000, aiModelProperties.getSelection().getConnectTimeoutMs());
         assertEquals(300000, aiModelProperties.getSelection().getRequestTimeoutMs());
-        assertEquals(8192, aiModelProperties.getGeneration().getMaxTokens());
-        assertEquals(0.3, aiModelProperties.getGeneration().getTemperature());
-        assertEquals(0.25, aiModelProperties.getGeneration().getFrequencyPenalty());
-        assertEquals(0.1, aiModelProperties.getGeneration().getPresencePenalty());
+        assertEquals(12144, aiModelProperties.getGeneration().getMaxTokens());
+        assertEquals(0.1, aiModelProperties.getGeneration().getTemperature());
+        assertEquals(0.0, aiModelProperties.getGeneration().getFrequencyPenalty());
+        assertEquals(0.0, aiModelProperties.getGeneration().getPresencePenalty());
         assertEquals(4, aiModelProperties.getStreamExecutor().getCoreSize());
     }
 }

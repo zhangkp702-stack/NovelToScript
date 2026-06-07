@@ -15,6 +15,8 @@ import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
 import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class ScriptApplicationServiceImpl implements ScriptApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptApplicationServiceImpl.class);
     private static final MediaType TEXT_PLAIN_UTF8 = new MediaType("text", "plain", StandardCharsets.UTF_8);
 
     private final LLMService llmService;
@@ -78,6 +81,12 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 chapterRequest.title(),
                 chapterRequest.chapterNumber(),
                 chapterRequest.chapterContent());
+        log.info("开始流式生成剧本: user={}, chapter={}, title={}, contentLength={}",
+                currentUser,
+                chapterRequest.chapterNumber(),
+                chapterRequest.title() == null || chapterRequest.title().isBlank() ? "未命名作品" : chapterRequest.title(),
+                chapterRequest.chapterContent().length());
+
         AtomicReference<StreamCancellationHandle> handleRef = new AtomicReference<>();
         AtomicBoolean streamFinished = new AtomicBoolean(false);
         StringBuilder accumulated = new StringBuilder();
@@ -85,6 +94,8 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
         StreamCallback emitterCallback = new StreamCallback() {
             @Override
             public void onOpen(String modelName) {
+                log.info("流式生成已建立连接: user={}, chapter={}, model={}",
+                        currentUser, chapterRequest.chapterNumber(), modelName);
                 sendSseEvent(emitter, "open", modelName == null ? "" : modelName);
             }
 
@@ -101,6 +112,10 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 if (!streamFinished.compareAndSet(false, true)) {
                     return;
                 }
+                log.info("流式生成完成: user={}, chapter={}, outputLength={}",
+                        currentUser,
+                        chapterRequest.chapterNumber(),
+                        accumulated.length());
                 emitStructureWarningIfNeeded(emitter, accumulated.toString());
                 sendSseEvent(emitter, "done", "");
                 emitter.complete();

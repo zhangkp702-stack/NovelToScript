@@ -71,6 +71,19 @@ export function getScript(id) {
   return request(`/api/scripts/${id}`, "GET");
 }
 
+export function listWorks() {
+  return request("/api/scripts/works", "GET");
+}
+
+export function deleteWork(workTitle = "") {
+  const query = new URLSearchParams();
+  if (workTitle) {
+    query.set("workTitle", workTitle);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/api/scripts/works${suffix}`, "DELETE");
+}
+
 export async function generateScriptStream(payload, handlers = {}, signal) {
   const response = await fetch("/api/scripts/generate/stream", {
     method: "POST",
