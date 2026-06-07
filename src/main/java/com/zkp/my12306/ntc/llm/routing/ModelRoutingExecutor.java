@@ -37,7 +37,9 @@ public class ModelRoutingExecutor {
                 continue;
             }
             try {
+                log.info("开始调用大模型: modelId={}, provider={}", target.id(), provider);
                 ChatResult result = chatClient.chat(prompt, target);
+                log.info("大模型调用成功: modelId={}", target.id());
                 healthStore.markSuccess(target.id());
                 return result;
             } catch (Exception ex) {

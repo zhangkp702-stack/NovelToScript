@@ -6,12 +6,15 @@ import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
 public class ScriptApplicationServiceImpl implements ScriptApplicationService {
+    private static final Logger log = LoggerFactory.getLogger(ScriptApplicationServiceImpl.class);
     private static final int MIN_CHAPTERS = 3;
     private final LLMService llmService;
 
@@ -24,7 +27,10 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
     public ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser) {
         validateInput(request);
         String prompt = buildPrompt(request.title(), request.chapters());
+        log.info("开始生成剧本: user={}, chapters={}, promptLength={}",
+                currentUser, request.chapters().size(), prompt.length());
         ChatResult llmResponse = llmService.chat(prompt);
+        log.info("剧本生成完成: user={}, model={}", currentUser, llmResponse.modelName());
         return new ScriptGenerateResponseDto(llmResponse.content(), llmResponse.modelName());
     }
 

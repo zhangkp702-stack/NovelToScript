@@ -54,7 +54,10 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
             HttpRequest request = buildRequest(modelTarget, body);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("模型请求失败，provider=" + provider() + ", status=" + response.statusCode());
+                throw new IllegalStateException(
+                        "模型请求失败，provider=" + provider()
+                                + ", status=" + response.statusCode()
+                                + ", body=" + abbreviate(response.body()));
             }
             return parseChatResponse(response.body(), modelTarget.id());
         } catch (Exception ex) {
@@ -147,6 +150,14 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         } finally {
             closeQuietly(body);
         }
+    }
+
+    private String abbreviate(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 300 ? normalized : normalized.substring(0, 300) + "...";
     }
 
     private void closeQuietly(InputStream body) {
