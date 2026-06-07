@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { currentUser, logout } from "../api/auth";
-import { generateScriptStream } from "../api/script";
+import { generateScriptStream, listScripts, saveScript } from "../api/script";
 import ChapterFieldList from "../components/ChapterFieldList.vue";
 import { validateChapterContent } from "../utils/chapterValidation";
 import { loadWorkbenchDraft, saveWorkbenchDraft } from "../utils/workbenchDraft";
@@ -29,7 +29,9 @@ function createEmptyResult() {
     model: "",
     status: "idle",
     error: "",
-    warning: ""
+    warning: "",
+    saved: false,
+    recordId: null
   };
 }
 
@@ -113,10 +115,82 @@ function restoreDraft() {
           model: result?.model || "",
           status: result?.status || "idle",
           error: result?.error || "",
-          warning: result?.warning || ""
+          warning: result?.warning || "",
+          saved: result?.saved || false,
+          recordId: result?.recordId || null
         }
       ])
     );
+  }
+}
+
+async function persistChapterResult(index, chapter) {
+  const result = resultsById.value[chapter.id];
+  if (!result?.content) {
+    return;
+  }
+  const payload = {
+    workTitle: title.value.trim() || "",
+    chapterNumber: index + 1,
+    chapterContent: chapter.content.trim(),
+    scriptContent: result.content,
+    modelName: result.model || null
+  };
+  try {
+    const { response, payload: savePayload } = await saveScript(payload);
+    if (response.ok && savePayload?.id) {
+      result.saved = true;
+      result.recordId = savePayload.id;
+    }
+  } catch {
+    // 保存失败不阻断生成结果展示
+  }
+}
+
+async function onLoadHistory() {
+  loading.value = true;
+  try {
+    const { response, payload } = await listScripts(title.value.trim());
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
+    if (!response.ok) {
+      const message = typeof payload === "object" && payload?.message
+        ? payload.message
+        : `加载失败（HTTP ${response.status}）`;
+      showNotice("error", message);
+      return;
+    }
+    if (!Array.isArray(payload) || payload.length === 0) {
+      showNotice("info", "当前作品标题下暂无历史记录");
+      return;
+    }
+    const sorted = [...payload].sort((a, b) => a.chapterNumber - b.chapterNumber);
+    chapterItems.value = sorted.map((record) => ({
+      id: crypto.randomUUID(),
+      content: record.chapterContent || ""
+    }));
+    resultsById.value = Object.fromEntries(
+      chapterItems.value.map((item, idx) => [
+        item.id,
+        {
+          content: sorted[idx].scriptContent || "",
+          model: sorted[idx].modelName || "",
+          status: "done",
+          error: "",
+          warning: "",
+          saved: true,
+          recordId: sorted[idx].id
+        }
+      ])
+    );
+    showNotice("success", `已加载 ${sorted.length} 章历史记录`);
+  } catch (error) {
+    showNotice("error", `加载历史失败：${error.message}`);
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -263,6 +337,8 @@ async function onGenerateChapter(index) {
   result.model = "";
   result.error = "";
   result.warning = "";
+  result.saved = false;
+  result.recordId = null;
   result.status = "streaming";
   setStreaming(chapter.id, true);
 
@@ -310,6 +386,8 @@ async function onGenerateChapter(index) {
         : `请求失败（HTTP ${response.status}）`;
       result.status = "error";
       result.error = message;
+    } else if (result.status === "done" && result.content) {
+      await persistChapterResult(index, chapter);
     }
   } catch (error) {
     if (error.name === "AbortError") {
@@ -346,9 +424,14 @@ async function onGenerateChapter(index) {
       <div class="workbench-panel input-panel">
         <h2>用户提交</h2>
 
-        <div class="field">
+        <div class="field work-title-field">
           <label for="title">作品标题（可选）</label>
-          <input id="title" v-model="title" placeholder="请输入作品标题" />
+          <div class="work-title-row">
+            <input id="title" v-model="title" placeholder="请输入作品标题" />
+            <button type="button" class="secondary load-history-btn" :disabled="loading" @click="onLoadHistory">
+              加载历史
+            </button>
+          </div>
         </div>
 
         <ChapterFieldList
@@ -374,6 +457,7 @@ async function onGenerateChapter(index) {
               <div class="chapter-result-actions">
                 <span class="chapter-status" :data-status="resultsById[chapter.id]?.status || 'idle'">
                   {{ statusLabel(resultsById[chapter.id]?.status || 'idle') }}
+                  <template v-if="resultsById[chapter.id]?.saved"> · 已保存</template>
                 </span>
                 <button
                   type="button"

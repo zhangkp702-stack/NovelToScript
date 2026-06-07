@@ -54,6 +54,23 @@ export function generateScript(payload) {
   return request("/api/scripts/generate", "POST", payload);
 }
 
+export function saveScript(payload) {
+  return request("/api/scripts", "POST", payload);
+}
+
+export function listScripts(workTitle = "") {
+  const query = new URLSearchParams();
+  if (workTitle) {
+    query.set("workTitle", workTitle);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/api/scripts${suffix}`, "GET");
+}
+
+export function getScript(id) {
+  return request(`/api/scripts/${id}`, "GET");
+}
+
 export async function generateScriptStream(payload, handlers = {}, signal) {
   const response = await fetch("/api/scripts/generate/stream", {
     method: "POST",

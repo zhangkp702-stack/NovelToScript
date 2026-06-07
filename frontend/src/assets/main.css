@@ -334,6 +334,21 @@ button:disabled {
   }
 }
 
+.work-title-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.work-title-row input {
+  flex: 1;
+}
+
+.load-history-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .chapter-list {
   margin-top: 12px;
 }
