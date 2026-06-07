@@ -14,11 +14,15 @@ import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptMessageDO;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.dao.mapper.ScriptMessageMapper;
-import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
+import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputException;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
 import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import com.zkp.my12306.ntc.script.prompt.ScriptRefinePromptBuilder;
 import com.zkp.my12306.ntc.script.record.ScriptRecordValidationException;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidationException;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.service.CharacterService;
 import com.zkp.my12306.ntc.service.ScriptRefineService;
 import com.zkp.my12306.ntc.service.ScriptWorkService;
@@ -50,6 +54,8 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
     private final ScriptWorkService scriptWorkService;
     private final CharacterService characterService;
     private final ScriptRefinePromptBuilder refinePromptBuilder;
+    private final ScriptOutputParser outputParser;
+    private final ScriptSchemaValidator schemaValidator;
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
 
@@ -58,12 +64,16 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
             ScriptWorkService scriptWorkService,
             CharacterService characterService,
             ScriptRefinePromptBuilder refinePromptBuilder,
+            ScriptOutputParser outputParser,
+            ScriptSchemaValidator schemaValidator,
             LLMService llmService,
             ObjectMapper objectMapper) {
         this.scriptMessageMapper = scriptMessageMapper;
         this.scriptWorkService = scriptWorkService;
         this.characterService = characterService;
         this.refinePromptBuilder = refinePromptBuilder;
+        this.outputParser = outputParser;
+        this.schemaValidator = schemaValidator;
         this.llmService = llmService;
         this.objectMapper = objectMapper;
     }
@@ -158,15 +168,22 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
             }
 
             @Override
+            public void onWarn(String message) {
+                if (message != null && !message.isBlank()) {
+                    sendSseEvent(emitter, "warn", message);
+                }
+            }
+
+            @Override
             public void onComplete() {
                 if (!streamFinished.compareAndSet(false, true)) {
                     return;
                 }
                 String revisedScript = accumulated.toString().trim();
-                if (!revisedScript.isBlank()) {
-                    saveMessage(workId, chapterNumber, "assistant", revisedScript, traceId);
+                String persistedScript = emitStreamCompletionFeedback(emitter, revisedScript);
+                if (!persistedScript.isBlank()) {
+                    saveMessage(workId, chapterNumber, "assistant", persistedScript, traceId);
                 }
-                emitStructureWarningIfNeeded(emitter, revisedScript);
                 sendSseEvent(emitter, "done", "");
                 emitter.complete();
             }
@@ -281,20 +298,39 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
         }
     }
 
-    private void emitStructureWarningIfNeeded(SseEmitter emitter, String content) {
+    private String emitStreamCompletionFeedback(SseEmitter emitter, String content) {
         if (content == null || content.isBlank()) {
-            return;
+            return "";
         }
         try {
-            if (NaturalScriptFormat.looksLikeNaturalScript(content)) {
-                String error = NaturalScriptFormat.validateStructure(content);
-                if (error != null) {
-                    sendSseEvent(emitter, "warn", error);
-                }
+            ScriptDocument document = outputParser.parse(content);
+            if (document == null || document.root() == null) {
+                sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
+                return content;
             }
-        } catch (RuntimeException ignored) {
-            // 轻量校验失败不影响已生成内容的交付
+            if (isNaturalScriptDocument(document)) {
+                sendSseEvent(emitter, "warn", "输出未采用 YAML 格式，请换用更强模型后重试");
+                return content;
+            }
+            schemaValidator.validateChapterFragment(document);
+            String yaml = document.toYaml();
+            sendSseEvent(emitter, "artifact", yaml);
+            return yaml;
+        } catch (ScriptSchemaValidationException ex) {
+            sendSseEvent(emitter, "warn", "YAML 结构校验未通过：" + ex.getMessage());
+        } catch (ScriptOutputException ex) {
+            sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
+        } catch (RuntimeException ex) {
+            log.warn("改编完成后的 YAML 处理失败", ex);
+            sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
         }
+        return content;
+    }
+
+    private boolean isNaturalScriptDocument(ScriptDocument document) {
+        return document != null
+                && document.root() != null
+                && "natural_script".equals(document.root().path("format").asText());
     }
 
     private void cancelStream(StreamCancellationHandle handle, SseEmitter emitter) {

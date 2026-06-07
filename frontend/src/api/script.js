@@ -26,6 +26,15 @@ async function request(url, method, body) {
   return { response, payload };
 }
 
+function extractSseDataValue(line) {
+  let value = line.slice(5);
+  // SSE 规范：冒号后最多去掉一个空格，必须保留 payload 内的缩进（YAML 依赖行首空格）
+  if (value.startsWith(" ")) {
+    value = value.slice(1);
+  }
+  return value;
+}
+
 function parseSseChunk(buffer) {
   const events = [];
   const blocks = buffer.split("\n\n");
@@ -41,7 +50,7 @@ function parseSseChunk(buffer) {
       if (line.startsWith("event:")) {
         eventName = line.slice(6).trim();
       } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trimStart());
+        dataLines.push(extractSseDataValue(line));
       }
     }
     events.push({ event: eventName, data: dataLines.join("\n") });
@@ -174,6 +183,8 @@ async function postSseStream(url, payload, handlers = {}, signal) {
         handlers.onToken(item.data);
       } else if (item.event === "warn" && handlers.onWarn) {
         handlers.onWarn(item.data);
+      } else if (item.event === "artifact" && handlers.onArtifact) {
+        handlers.onArtifact(item.data);
       } else if (item.event === "meta" && handlers.onMeta) {
         handlers.onMeta(item.data);
       } else if (item.event === "done" && handlers.onDone) {

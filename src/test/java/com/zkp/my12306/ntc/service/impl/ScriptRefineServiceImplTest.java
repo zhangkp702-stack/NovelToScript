@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zkp.my12306.ntc.dto.ScriptRefineRequestDto;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.dao.mapper.ScriptMessageMapper;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.prompt.ScriptRefinePromptBuilder;
 import com.zkp.my12306.ntc.script.record.ScriptRecordValidationException;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.service.CharacterService;
 import com.zkp.my12306.ntc.service.ScriptWorkService;
 import com.zkp.my12306.ntc.llm.service.LLMService;
@@ -32,6 +34,8 @@ class ScriptRefineServiceImplTest {
 
     private final ScriptRefinePromptBuilder refinePromptBuilder =
             new ScriptRefinePromptBuilder(new ScriptPromptBuilder());
+    private final ScriptOutputParser outputParser = new ScriptOutputParser();
+    private final ScriptSchemaValidator schemaValidator = new ScriptSchemaValidator();
 
     private ScriptRefineServiceImpl service;
 
@@ -42,6 +46,8 @@ class ScriptRefineServiceImplTest {
                 scriptWorkService,
                 characterService,
                 refinePromptBuilder,
+                outputParser,
+                schemaValidator,
                 llmService,
                 new ObjectMapper());
     }

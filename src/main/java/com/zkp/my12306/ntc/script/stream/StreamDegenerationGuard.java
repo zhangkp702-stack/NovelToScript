@@ -8,7 +8,8 @@ public class StreamDegenerationGuard implements StreamCallback {
 
     private static final char REPLACEMENT_CHAR = '\uFFFD';
     private static final int MIN_CHARS_BEFORE_REPEAT_CHECK = 2500;
-    private static final String STOP_HINT = "\n\n[系统提示：检测到输出退化（乱码或重复），已自动停止。建议换用备用模型后重试。]\n";
+    static final String DEGENERATION_WARN_MESSAGE =
+            "检测到输出退化（乱码或重复），已自动停止。建议换用备用模型后重试。";
 
     private final StreamCallback downstream;
     private final Runnable cancelUpstream;
@@ -65,13 +66,16 @@ public class StreamDegenerationGuard implements StreamCallback {
         if (cancelUpstream != null) {
             cancelUpstream.run();
         }
-        downstream.onToken(STOP_HINT);
+        downstream.onWarn(DEGENERATION_WARN_MESSAGE);
         downstream.onComplete();
     }
 
     static boolean detectDegeneration(CharSequence text) {
         if (indexOfReplacement(text) >= 0) {
             return true;
+        }
+        if (looksLikeYamlOutput(text)) {
+            return false;
         }
         int length = text.length();
         if (length < MIN_CHARS_BEFORE_REPEAT_CHECK) {
@@ -130,5 +134,12 @@ public class StreamDegenerationGuard implements StreamCallback {
             }
         }
         return false;
+    }
+
+    private static boolean looksLikeYamlOutput(CharSequence text) {
+        if (text == null) {
+            return false;
+        }
+        return text.toString().contains("文档类型:");
     }
 }

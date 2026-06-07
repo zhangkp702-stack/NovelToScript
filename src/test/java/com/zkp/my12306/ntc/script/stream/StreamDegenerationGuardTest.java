@@ -33,4 +33,27 @@ class StreamDegenerationGuardTest {
                 """;
         assertFalse(StreamDegenerationGuard.detectDegeneration(normal));
     }
+
+    @Test
+    void detectDegeneration_ignoresStructuredYaml() {
+        String yaml = """
+                文档类型: 按章剧本片段
+                元信息:
+                  标题: 测试
+                场景列表:
+                  - 场景编号: 场景_001
+                    场景标题: 开场
+                    剧本正文: |
+                      动作：林澈推门而入。
+                      旁白：夜色笼罩走廊。
+                      动作：他停下脚步。
+                说明:
+                  改编策略: 保留原文调查线
+                  保留重点: 邮件、档案、反转
+                  补充内容: 补充环境描写
+                  省略内容: 无
+                  修改建议: 可加强结尾悬念
+                """;
+        assertFalse(StreamDegenerationGuard.detectDegeneration(yaml.repeat(8)));
+    }
 }

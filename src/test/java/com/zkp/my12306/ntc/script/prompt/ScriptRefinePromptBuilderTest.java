@@ -19,17 +19,19 @@ class ScriptRefinePromptBuilderTest {
         assertTrue(prompt.contains("雨夜归来"));
         assertTrue(prompt.contains("第 2 章"));
         assertTrue(prompt.contains("林澈"));
-        assertTrue(prompt.contains("必须从「剧本标题：」开始"));
+        assertTrue(prompt.contains("文档类型: 按章剧本片段"));
+        assertTrue(prompt.contains("按章剧本片段"));
     }
 
     @Test
     void buildFirstUserMessage_includesScriptAndInstruction() {
         ScriptRefinePromptBuilder builder = new ScriptRefinePromptBuilder(new ScriptPromptBuilder());
-        String message = builder.buildFirstUserMessage("剧本标题：《测试》\n场景一", "把对白写得更紧张");
+        String message = builder.buildFirstUserMessage("文档类型: 按章剧本片段\n元信息:\n  标题: 测试", "把对白写得更紧张");
 
-        assertTrue(message.contains("当前剧本如下"));
-        assertTrue(message.contains("剧本标题：《测试》"));
+        assertTrue(message.contains("当前剧本 YAML 如下"));
+        assertTrue(message.contains("文档类型: 按章剧本片段"));
         assertTrue(message.contains("修改要求"));
         assertTrue(message.contains("把对白写得更紧张"));
+        assertTrue(message.contains("完整中文 YAML"));
     }
 }
