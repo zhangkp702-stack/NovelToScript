@@ -152,8 +152,3 @@ docs/prompt/       # Prompt 维护说明
 
 维护 Prompt 时请编辑 `src/main/resources/prompt/` 与上述样例文件。
 
-## 测试
-
-```bash
-./mvnw test
-```
