@@ -3,17 +3,21 @@ package com.zkp.my12306.ntc.llm.routing;
 import com.zkp.my12306.ntc.llm.config.AIModelProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Component
 public class ModelSelector {
     private static final Logger log = LoggerFactory.getLogger(ModelSelector.class);
+    private static final Set<String> API_KEY_REQUIRED_PROVIDERS = Set.of(
+            "siliconflow", "deepseek", "openai", "bailian");
 
     private final AIModelProperties properties;
     private final ModelHealthStore healthStore;
@@ -21,6 +25,21 @@ public class ModelSelector {
     public ModelSelector(AIModelProperties properties, ModelHealthStore healthStore) {
         this.properties = properties;
         this.healthStore = healthStore;
+    }
+
+    @PostConstruct
+    void logChatModelConfig() {
+        AIModelProperties.ModelGroup group = properties.getChat();
+        if (group == null) {
+            log.warn("未配置 ai.chat 模型组");
+            return;
+        }
+        List<ModelTarget> targets = selectChatCandidates();
+        String order = targets.stream()
+                .map(target -> target.id() + "(" + target.candidate().getProvider() + ")")
+                .collect(Collectors.joining(" -> "));
+        log.info("大模型路由配置: default-model={}, 可用顺序={}",
+                group.getDefaultModel(), order.isBlank() ? "无" : order);
     }
 
     public List<ModelTarget> selectChatCandidates() {
@@ -77,6 +96,10 @@ public class ModelSelector {
             log.warn("Provider配置缺失: provider={}, modelId={}", candidate.getProvider(), modelId);
             return null;
         }
+        if (requiresApiKey(candidate.getProvider()) && isBlank(provider.getApiKey())) {
+            log.warn("Provider 缺少 api-key，跳过: provider={}, modelId={}", candidate.getProvider(), modelId);
+            return null;
+        }
         validateTarget(modelId, candidate, provider);
         return new ModelTarget(modelId, candidate, provider);
     }
@@ -96,6 +119,14 @@ public class ModelSelector {
         if (!hasCandidateUrl && !hasProviderUrl) {
             throw new IllegalStateException("模型配置缺少 url：" + modelId);
         }
+    }
+
+    private boolean requiresApiKey(String provider) {
+        return provider != null && API_KEY_REQUIRED_PROVIDERS.contains(provider);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String resolveId(AIModelProperties.ModelCandidate candidate) {

@@ -29,7 +29,19 @@ public class ScriptGenerationController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ErrorResponseDto(ex.getMessage()));
         } catch (IllegalStateException ex) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponseDto(ex.getMessage()));
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(new ErrorResponseDto(resolveErrorMessage(ex)));
         }
+    }
+
+    private String resolveErrorMessage(Exception ex) {
+        Throwable root = ex;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        if (root == ex) {
+            return ex.getMessage();
+        }
+        return ex.getMessage() + "：" + root.getMessage();
     }
 }

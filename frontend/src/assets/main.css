@@ -58,6 +58,12 @@ h1 {
   border-color: #fca5a5;
 }
 
+.notice[data-type="info"] {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
 .field {
   margin-top: 10px;
 }

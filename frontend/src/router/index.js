@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { hasSessionId } from "../api/auth";
+import { clearSessionId, hasSessionId, isAuthenticated } from "../api/auth";
 import LoginView from "../views/LoginView.vue";
 import RegisterView from "../views/RegisterView.vue";
 import WorkbenchView from "../views/WorkbenchView.vue";
@@ -16,12 +16,16 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach((to) => {
-  const loggedIn = hasSessionId();
-  if (to.meta.requiresAuth && !loggedIn) {
-    return "/login";
+router.beforeEach(async (to) => {
+  if (to.meta.requiresAuth) {
+    const authed = hasSessionId() ? await isAuthenticated() : false;
+    if (!authed) {
+      clearSessionId();
+      return "/login";
+    }
+    return true;
   }
-  if (to.meta.guestOnly && loggedIn) {
+  if (to.meta.guestOnly && hasSessionId() && (await isAuthenticated())) {
     return "/workbench";
   }
   return true;

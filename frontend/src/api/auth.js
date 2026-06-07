@@ -11,12 +11,21 @@ function saveSessionId(sessionId) {
   }
 }
 
-function clearSessionId() {
+export function clearSessionId() {
   localStorage.removeItem(SESSION_ID_KEY);
 }
 
 export function hasSessionId() {
   return !!getSessionId();
+}
+
+export async function isAuthenticated() {
+  try {
+    const { response } = await currentUser();
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function request(url, method, body) {

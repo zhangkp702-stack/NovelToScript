@@ -56,18 +56,26 @@ async function onGenerate() {
   loading.value = true;
   resultContent.value = "";
   resultModel.value = "";
+  showNotice("info", "正在调用大模型生成剧本，请稍候（可能需要 1-2 分钟）...");
   try {
     const payload = {
       title: title.value.trim() || null,
       chapters: collectFilledChapters(chapters.value)
     };
     const { response, payload: resBody } = await generateScript(payload);
+    if (response.status === 401) {
+      showNotice("error", "登录已过期，请重新登录");
+      router.push("/login");
+      return;
+    }
     if (response.ok) {
       resultContent.value = typeof resBody?.content === "string" ? resBody.content : "";
       resultModel.value = typeof resBody?.modelName === "string" ? resBody.modelName : "";
       showNotice("success", "剧本生成成功");
     } else {
-      const message = typeof resBody === "object" && resBody?.message ? resBody.message : "生成失败";
+      const message = typeof resBody === "object" && resBody?.message
+        ? resBody.message
+        : `请求失败（HTTP ${response.status}）`;
       showNotice("error", `生成失败：${message}`);
     }
   } catch (error) {
