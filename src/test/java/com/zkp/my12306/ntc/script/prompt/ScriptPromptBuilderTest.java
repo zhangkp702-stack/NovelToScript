@@ -11,9 +11,13 @@ class ScriptPromptBuilderTest {
     private final ScriptPromptBuilder builder = new ScriptPromptBuilder();
 
     @Test
-    void build_includesSchemaRequirementsAndChapters() {
+    void build_includesSchemaSampleAndChapters() {
         String prompt = builder.build("旧城雨夜", List.of("第一章内容", "第二章内容", "第三章内容"));
 
+        assertTrue(prompt.contains("【Schema 规范】"));
+        assertTrue(prompt.contains("【输出示例】"));
+        assertTrue(prompt.contains("schema_name: NovelToScriptSchema"));
+        assertTrue(prompt.contains("scene_id: scene_001"));
         assertTrue(prompt.contains("metadata.schema_version 固定为 1.0.0"));
         assertTrue(prompt.contains("小说标题：旧城雨夜"));
         assertTrue(prompt.contains("章节数量：3"));

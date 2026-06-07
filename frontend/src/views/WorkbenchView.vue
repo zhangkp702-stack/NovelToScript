@@ -5,6 +5,7 @@ import { currentUser, logout } from "../api/auth";
 import { generateScript } from "../api/script";
 import ChapterFieldList from "../components/ChapterFieldList.vue";
 import { collectFilledChapters, validateChapters } from "../utils/chapterValidation";
+import { formatScriptPreview } from "../utils/scriptPreview";
 
 const router = useRouter();
 const title = ref("");
@@ -69,9 +70,10 @@ async function onGenerate() {
       return;
     }
     if (response.ok) {
-      resultContent.value = typeof resBody?.content === "string" ? resBody.content : "";
+      const preview = formatScriptPreview(resBody?.script);
+      resultContent.value = preview || (typeof resBody?.rawContent === "string" ? resBody.rawContent : "");
       resultModel.value = typeof resBody?.modelName === "string" ? resBody.modelName : "";
-      showNotice("success", "剧本生成成功");
+      showNotice("success", preview ? "剧本生成成功" : "生成完成，但结构化解析较弱，已展示原始内容");
     } else {
       const message = typeof resBody === "object" && resBody?.message
         ? resBody.message
