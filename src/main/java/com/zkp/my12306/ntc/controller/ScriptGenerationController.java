@@ -35,12 +35,15 @@ public class ScriptGenerationController {
         try {
             scriptApplicationService.validateGenerateRequest(request);
         } catch (ScriptValidationException ex) {
-            return ResponseEntity.badRequest().body(new ValidationErrorResponseDto(
-                    ex.getCode().name(),
-                    ex.getMessage(),
-                    ex.getMinChapters(),
-                    ex.getFilledCount(),
-                    ex.getInvalidIndexes()));
+            return ResponseEntity.badRequest()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new ValidationErrorResponseDto(
+                            ex.getCode().name(),
+                            ex.getMessage(),
+                            ex.getChapterNumber(),
+                            ex.getMinChapters(),
+                            ex.getFilledCount(),
+                            ex.getInvalidIndexes()));
         }
 
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -57,6 +60,7 @@ public class ScriptGenerationController {
             return ResponseEntity.badRequest().body(new ValidationErrorResponseDto(
                     ex.getCode().name(),
                     ex.getMessage(),
+                    ex.getChapterNumber(),
                     ex.getMinChapters(),
                     ex.getFilledCount(),
                     ex.getInvalidIndexes()));

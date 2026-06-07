@@ -5,6 +5,7 @@ import java.util.List;
 public class ScriptValidationException extends RuntimeException {
 
     private final ValidationErrorCode code;
+    private final Integer chapterNumber;
     private final int minChapters;
     private final int filledCount;
     private final List<Integer> invalidIndexes;
@@ -12,14 +13,20 @@ public class ScriptValidationException extends RuntimeException {
     public ScriptValidationException(
             ValidationErrorCode code,
             String message,
+            Integer chapterNumber,
             int minChapters,
             int filledCount,
             List<Integer> invalidIndexes) {
         super(message);
         this.code = code;
+        this.chapterNumber = chapterNumber;
         this.minChapters = minChapters;
         this.filledCount = filledCount;
         this.invalidIndexes = List.copyOf(invalidIndexes);
+    }
+
+    public Integer getChapterNumber() {
+        return chapterNumber;
     }
 
     public ValidationErrorCode getCode() {

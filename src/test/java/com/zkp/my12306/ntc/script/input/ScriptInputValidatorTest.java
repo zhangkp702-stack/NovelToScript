@@ -21,6 +21,7 @@ class ScriptInputValidatorTest {
                 ScriptValidationException.class,
                 () -> validator.validate(2, "  "));
         assertEquals(ValidationErrorCode.EMPTY_CHAPTER, ex.getCode());
+        assertEquals(2, ex.getChapterNumber());
         assertEquals(2, ex.getInvalidIndexes().get(0));
     }
 
@@ -30,5 +31,15 @@ class ScriptInputValidatorTest {
                 ScriptValidationException.class,
                 () -> validator.validate(0, "内容"));
         assertEquals(ValidationErrorCode.INVALID_CHAPTER_NUMBER, ex.getCode());
+    }
+
+    @Test
+    void validate_tooLongChapter_throwsChapterTooLong() {
+        String content = "a".repeat(ScriptInputValidator.MAX_CHAPTER_CONTENT_LENGTH + 1);
+        ScriptValidationException ex = assertThrows(
+                ScriptValidationException.class,
+                () -> validator.validate(3, content));
+        assertEquals(ValidationErrorCode.CHAPTER_TOO_LONG, ex.getCode());
+        assertEquals(3, ex.getChapterNumber());
     }
 }

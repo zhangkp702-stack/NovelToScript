@@ -2,6 +2,7 @@ package com.zkp.my12306.ntc.script.validate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -32,15 +33,9 @@ public class ScriptSchemaValidator {
 
     private void validateNaturalScript(JsonNode root) {
         String content = root.path("content").asText("");
-        if (content.isBlank()) {
-            throw new ScriptSchemaValidationException("剧本内容为空");
-        }
-        String normalized = content.stripLeading();
-        if (!normalized.startsWith("剧本信息:") && !normalized.startsWith("剧本信息：")) {
-            throw new ScriptSchemaValidationException("剧本必须以「剧本信息:」开头");
-        }
-        if (!content.contains("场景列表:") && !content.contains("场景列表：")) {
-            throw new ScriptSchemaValidationException("剧本缺少「场景列表」部分");
+        String error = NaturalScriptFormat.validateStructure(content);
+        if (error != null) {
+            throw new ScriptSchemaValidationException(error);
         }
     }
 

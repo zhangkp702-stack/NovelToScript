@@ -182,11 +182,37 @@ button:disabled {
   overflow-y: auto;
 }
 
-.chapter-generate-btn {
+.chapter-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chapter-remove-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.chapter-actions {
+  display: flex;
+  gap: 8px;
   margin-top: 8px;
-  width: 100%;
+}
+
+.chapter-generate-btn {
+  flex: 1;
   background: #111827;
   color: #fff;
+}
+
+.chapter-cancel-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .chapter-results {
@@ -204,9 +230,63 @@ button:disabled {
   min-height: 0;
 }
 
+.chapter-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .chapter-result-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 15px;
+}
+
+.chapter-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chapter-status {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.chapter-status[data-status="streaming"] {
+  color: #2563eb;
+}
+
+.chapter-status[data-status="done"] {
+  color: #059669;
+}
+
+.chapter-status[data-status="error"] {
+  color: #dc2626;
+}
+
+.chapter-status[data-status="cancelled"] {
+  color: #d97706;
+}
+
+.copy-result-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.chapter-error {
+  margin: 0 0 8px;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.chapter-warning {
+  margin: 0 0 8px;
+  color: #d97706;
+  font-size: 13px;
 }
 
 .output-panel .chapter-result-item .result-content {

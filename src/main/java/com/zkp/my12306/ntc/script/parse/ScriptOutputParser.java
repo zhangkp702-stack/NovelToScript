@@ -26,7 +26,7 @@ public class ScriptOutputParser {
             throw new ScriptOutputException("LLM 返回内容为空");
         }
         String payload = extractPayload(rawContent.trim());
-        if (looksLikeNaturalScript(payload)) {
+        if (NaturalScriptFormat.looksLikeNaturalScript(payload)) {
             return wrapNaturalScript(payload);
         }
         JsonNode root = parseStructuredPayload(payload);
@@ -39,14 +39,6 @@ public class ScriptOutputParser {
             return matcher.group(1).trim();
         }
         return rawContent;
-    }
-
-    private boolean looksLikeNaturalScript(String payload) {
-        String normalized = payload.stripLeading();
-        return normalized.startsWith("剧本信息:")
-                || normalized.startsWith("剧本信息：")
-                || payload.contains("\n剧本信息:")
-                || payload.contains("\n剧本信息：");
     }
 
     private ScriptDocument wrapNaturalScript(String payload) {

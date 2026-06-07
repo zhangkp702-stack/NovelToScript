@@ -9,6 +9,7 @@ import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandle;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
 import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
 import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.NaturalScriptFormat;
 import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
 import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
 import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
@@ -79,6 +80,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 chapterRequest.chapterContent());
         AtomicReference<StreamCancellationHandle> handleRef = new AtomicReference<>();
         AtomicBoolean streamFinished = new AtomicBoolean(false);
+        StringBuilder accumulated = new StringBuilder();
 
         StreamCallback emitterCallback = new StreamCallback() {
             @Override
@@ -88,6 +90,9 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
 
             @Override
             public void onToken(String token) {
+                if (token != null) {
+                    accumulated.append(token);
+                }
                 sendSseEvent(emitter, "token", token == null ? "" : token);
             }
 
@@ -96,6 +101,7 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
                 if (!streamFinished.compareAndSet(false, true)) {
                     return;
                 }
+                emitStructureWarningIfNeeded(emitter, accumulated.toString());
                 sendSseEvent(emitter, "done", "");
                 emitter.complete();
             }
@@ -133,6 +139,22 @@ public class ScriptApplicationServiceImpl implements ScriptApplicationService {
         }
         if (emitter != null) {
             emitter.complete();
+        }
+    }
+
+    private void emitStructureWarningIfNeeded(SseEmitter emitter, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        try {
+            if (NaturalScriptFormat.looksLikeNaturalScript(content)) {
+                String error = NaturalScriptFormat.validateStructure(content);
+                if (error != null) {
+                    sendSseEvent(emitter, "warn", error);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // 轻量校验失败不影响已生成内容的交付
         }
     }
 

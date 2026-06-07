@@ -15,14 +15,36 @@ class ScriptOutputParserTest {
     private final ScriptOutputParser parser = new ScriptOutputParser();
 
     @Test
-    void parse_naturalScript_returnsWrappedDocument() {
+    void parse_currentPromptFormat_returnsWrappedDocument() {
+        String script = """
+                剧本标题：《雨夜归来》
+                原章节标题：第一章
+                类型：悬疑
+                基调：紧张
+                一句话梗概：林川雨夜归来。
+
+                场景一：凌晨来信
+                场景头：内景，卧室，凌晨
+                出场人物：林川
+
+                剧本正文：
+                旁白：凌晨三点，林川被手机惊醒。
+                林川：（低声）谁？
+                """;
+
+        ScriptDocument document = parser.parse(script);
+
+        assertEquals("natural_script", document.root().path("format").asText());
+        assertTrue(document.root().path("content").asText().startsWith("剧本标题："));
+    }
+
+    @Test
+    void parse_legacyInfoFormat_returnsWrappedDocument() {
         String script = """
                 剧本信息:
                 剧本标题: "雨夜归来"
                 场景列表:
-                * 场景编号: "场景一"
-                  剧本正文: |
-                  林川：（低声）我回来了。
+                场景一：来信
                 """;
 
         ScriptDocument document = parser.parse(script);

@@ -88,6 +88,8 @@ export async function generateScriptStream(payload, handlers = {}, signal) {
         handlers.onOpen(item.data);
       } else if (item.event === "token" && handlers.onToken) {
         handlers.onToken(item.data);
+      } else if (item.event === "warn" && handlers.onWarn) {
+        handlers.onWarn(item.data);
       } else if (item.event === "done" && handlers.onDone) {
         handlers.onDone(item.data);
       } else if (item.event === "error" && handlers.onError) {
