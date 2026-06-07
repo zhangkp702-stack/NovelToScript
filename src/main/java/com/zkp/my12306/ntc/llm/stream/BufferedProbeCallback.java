@@ -1,11 +1,11 @@
 package com.zkp.my12306.ntc.llm.stream;
 
-import java.util.ArrayList;
-import java.util.List;
-
+/**
+ * 首包探测期间的流式回调：token 立即下发，避免等探测完成或流结束后一次性刷出。
+ * promoteAndFlush 仅用于探测成功时补发 onOpen / onComplete（若流在探测前已结束）。
+ */
 public class BufferedProbeCallback implements StreamCallback {
     private final StreamCallback downstream;
-    private final List<String> tokenBuffer = new ArrayList<>();
     private boolean promoted = false;
     private boolean openSent = false;
     private String modelName;
@@ -28,10 +28,9 @@ public class BufferedProbeCallback implements StreamCallback {
     @Override
     public synchronized void onToken(String token) {
         if (!promoted) {
-            tokenBuffer.add(token);
-            return;
+            promoted = true;
+            ensureOpenSent();
         }
-        ensureOpenSent();
         downstream.onToken(token);
     }
 
@@ -57,21 +56,21 @@ public class BufferedProbeCallback implements StreamCallback {
 
     public synchronized void promoteAndFlush() {
         if (promoted) {
+            if (completedBeforePromote) {
+                downstream.onComplete();
+                completedBeforePromote = false;
+            }
             return;
         }
         promoted = true;
         ensureOpenSent();
-        for (String token : tokenBuffer) {
-            downstream.onToken(token);
-        }
-        tokenBuffer.clear();
         if (completedBeforePromote) {
             downstream.onComplete();
+            completedBeforePromote = false;
         }
     }
 
     public synchronized void clearBuffer() {
-        tokenBuffer.clear();
         completedBeforePromote = false;
         errorBeforePromote = null;
     }

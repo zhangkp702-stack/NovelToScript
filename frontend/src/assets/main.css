@@ -1055,6 +1055,11 @@ button:disabled {
   overflow: auto;
 }
 
+.result-content .yaml-stream-raw {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .result-content .yaml-line {
   display: block;
   white-space: pre-wrap;
