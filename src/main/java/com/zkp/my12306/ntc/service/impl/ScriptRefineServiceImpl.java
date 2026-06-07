@@ -306,11 +306,11 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
             ScriptDocument document = outputParser.parse(content);
             if (document == null || document.root() == null) {
                 sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
-                return content;
+                return "";
             }
             if (isNaturalScriptDocument(document)) {
                 sendSseEvent(emitter, "warn", "输出未采用 YAML 格式，请换用更强模型后重试");
-                return content;
+                return "";
             }
             schemaValidator.validateChapterFragment(document);
             String yaml = document.toYaml();
@@ -324,7 +324,7 @@ public class ScriptRefineServiceImpl implements ScriptRefineService {
             log.warn("改编完成后的 YAML 处理失败", ex);
             sendSseEvent(emitter, "warn", "输出无法解析为合法 YAML，请换用更强模型后重试");
         }
-        return content;
+        return "";
     }
 
     private boolean isNaturalScriptDocument(ScriptDocument document) {

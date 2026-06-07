@@ -16,7 +16,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.lang.reflect.Method;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
 
@@ -72,5 +76,25 @@ class ScriptRefineServiceImplTest {
 
         assertThrows(ScriptRecordValidationException.class,
                 () -> service.listMessages("user1", "work-1", 0));
+    }
+
+    @Test
+    void validateRefineRequest_blankScriptContent_throws() {
+        ScriptRefineRequestDto request = new ScriptRefineRequestDto(
+                "work-1",
+                "gen-1",
+                1,
+                "加强冲突",
+                "  ");
+        assertThrows(ScriptRecordValidationException.class, () -> service.validateRefineRequest(request));
+    }
+
+    @Test
+    void emitStreamCompletionFeedback_invalidYaml_returnsEmpty() throws Exception {
+        Method method = ScriptRefineServiceImpl.class.getDeclaredMethod(
+                "emitStreamCompletionFeedback", SseEmitter.class, String.class);
+        method.setAccessible(true);
+        String persisted = (String) method.invoke(service, new SseEmitter(), "这不是合法 YAML");
+        assertEquals("", persisted);
     }
 }

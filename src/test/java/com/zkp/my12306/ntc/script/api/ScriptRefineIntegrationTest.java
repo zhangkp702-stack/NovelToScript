@@ -84,7 +84,26 @@ class ScriptRefineIntegrationTest {
                   "workId": "%s",
                   "chapterNumber": 1,
                   "instruction": "   ",
-                  "currentScriptContent": "剧本标题：《测试》\\n场景一"
+                  "currentScriptContent": "文档类型: 按章剧本片段\\n元信息:\\n  标题: 测试"
+                }
+                """.formatted(workId);
+
+        mockMvc.perform(post("/api/scripts/refine/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "tester")
+    void refineStream_blankScriptContent_returnsBadRequest() throws Exception {
+        String workId = createWork("改编内容校验");
+        String body = """
+                {
+                  "workId": "%s",
+                  "chapterNumber": 1,
+                  "instruction": "加强冲突",
+                  "currentScriptContent": "   "
                 }
                 """.formatted(workId);
 
