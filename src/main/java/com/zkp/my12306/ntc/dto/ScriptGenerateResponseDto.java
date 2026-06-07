@@ -5,5 +5,8 @@ import java.util.Map;
 public record ScriptGenerateResponseDto(
         String modelName,
         Map<String, Object> script,
-        String rawContent) {
+        String rawContent,
+        String traceId,
+        String generationId,
+        String workId) {
 }

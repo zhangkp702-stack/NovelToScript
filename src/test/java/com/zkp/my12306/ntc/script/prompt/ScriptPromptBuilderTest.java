@@ -1,6 +1,9 @@
 package com.zkp.my12306.ntc.script.prompt;
 
+import com.zkp.my12306.ntc.script.prompt.CharacterPromptItem;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,5 +40,23 @@ class ScriptPromptBuilderTest {
 
         assertTrue(prompt.contains("原文字数约：2000"));
         assertTrue(prompt.contains("剧本正文最少：1300 字"));
+    }
+
+    @Test
+    void build_includesCharacterSettingsWhenProvided() {
+        String prompt = builder.build("旧城雨夜", 1, "第一章", List.of(
+                new CharacterPromptItem("林澈", "小林", "档案管理员", "冷静克制")));
+
+        assertTrue(prompt.contains("人物设定（跨章保持一致"));
+        assertTrue(prompt.contains("- 名称：林澈（别名：小林）"));
+        assertTrue(prompt.contains("身份：档案管理员"));
+        assertTrue(prompt.contains("性格：冷静克制"));
+    }
+
+    @Test
+    void build_withoutCharacters_usesFallbackHint() {
+        String prompt = builder.build("旧城雨夜", 1, "第一章", List.of());
+
+        assertTrue(prompt.contains("暂无预定义人物"));
     }
 }

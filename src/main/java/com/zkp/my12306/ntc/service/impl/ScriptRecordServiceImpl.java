@@ -6,40 +6,40 @@ import com.zkp.my12306.ntc.dto.ScriptSaveRequestDto;
 import com.zkp.my12306.ntc.dto.ScriptWorkSummaryDto;
 import com.zkp.my12306.ntc.llm.trace.TraceIdGenerator;
 import com.zkp.my12306.ntc.script.dao.entity.ScriptRecordDO;
+import com.zkp.my12306.ntc.script.dao.entity.ScriptWorkDO;
 import com.zkp.my12306.ntc.script.dao.mapper.ScriptRecordMapper;
 import com.zkp.my12306.ntc.script.record.ScriptRecordAccessDeniedException;
 import com.zkp.my12306.ntc.script.record.ScriptRecordNotFoundException;
 import com.zkp.my12306.ntc.script.record.ScriptRecordValidationException;
 import com.zkp.my12306.ntc.service.ScriptRecordService;
+import com.zkp.my12306.ntc.service.ScriptWorkService;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class ScriptRecordServiceImpl implements ScriptRecordService {
 
-    private static final String UNTITLED_WORK_LABEL = "未命名作品";
-
     private final ScriptRecordMapper scriptRecordMapper;
+    private final ScriptWorkService scriptWorkService;
 
-    public ScriptRecordServiceImpl(ScriptRecordMapper scriptRecordMapper) {
+    public ScriptRecordServiceImpl(ScriptRecordMapper scriptRecordMapper, ScriptWorkService scriptWorkService) {
         this.scriptRecordMapper = scriptRecordMapper;
+        this.scriptWorkService = scriptWorkService;
     }
 
     @Override
     public ScriptRecordResponseDto save(String currentUser, ScriptSaveRequestDto request) {
         validateSaveRequest(currentUser, request);
         String userId = currentUser.trim();
-        String workTitle = normalizeWorkTitle(request.workTitle());
+        String workId = scriptWorkService.resolveWorkId(currentUser, request.workId(), request.workTitle());
+        ScriptWorkDO work = scriptWorkService.requireOwnedWork(currentUser, workId);
+        String workTitle = work.getTitle();
         int chapterNumber = request.chapterNumber();
         String chapterContent = request.chapterContent().trim();
         String scriptContent = request.scriptContent().trim();
@@ -47,33 +47,49 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
 
         ScriptRecordDO existing = scriptRecordMapper.selectOne(Wrappers.lambdaQuery(ScriptRecordDO.class)
                 .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, workTitle)
+                .eq(ScriptRecordDO::getWorkId, workId)
                 .eq(ScriptRecordDO::getChapterNumber, chapterNumber)
                 .last("LIMIT 1"));
+        if (existing == null) {
+            existing = scriptRecordMapper.selectOne(Wrappers.lambdaQuery(ScriptRecordDO.class)
+                    .eq(ScriptRecordDO::getUserId, userId)
+                    .eq(ScriptRecordDO::getWorkTitle, workTitle)
+                    .eq(ScriptRecordDO::getChapterNumber, chapterNumber)
+                    .last("LIMIT 1"));
+        }
 
         if (existing == null) {
             ScriptRecordDO record = new ScriptRecordDO();
             record.setId(TraceIdGenerator.nextId());
             record.setUserId(userId);
+            record.setWorkId(workId);
             record.setWorkTitle(workTitle);
             record.setChapterNumber(chapterNumber);
             record.setChapterContent(chapterContent);
             record.setChapterContentHash(hashContent(chapterContent));
             record.setScriptContent(scriptContent);
-            record.setModelName(normalizeModelName(request.modelName()));
+            record.setModelName(normalizeOptional(request.modelName()));
+            record.setTraceId(normalizeOptional(request.traceId()));
+            record.setGenerationId(normalizeOptional(request.generationId()));
             record.setCreateTime(now);
             record.setUpdateTime(now);
             record.setDeleted(0);
             scriptRecordMapper.insert(record);
+            scriptWorkService.touchWork(workId);
             return toResponse(record);
         }
 
+        existing.setWorkId(workId);
+        existing.setWorkTitle(workTitle);
         existing.setChapterContent(chapterContent);
         existing.setChapterContentHash(hashContent(chapterContent));
         existing.setScriptContent(scriptContent);
-        existing.setModelName(normalizeModelName(request.modelName()));
+        existing.setModelName(normalizeOptional(request.modelName()));
+        existing.setTraceId(normalizeOptional(request.traceId()));
+        existing.setGenerationId(normalizeOptional(request.generationId()));
         existing.setUpdateTime(now);
         scriptRecordMapper.updateById(existing);
+        scriptWorkService.touchWork(workId);
         return toResponse(existing);
     }
 
@@ -92,52 +108,27 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
     }
 
     @Override
-    public List<ScriptWorkSummaryDto> listWorks(String currentUser) {
-        if (currentUser == null || currentUser.isBlank()) {
-            throw new ScriptRecordValidationException("用户未登录");
-        }
-        String userId = currentUser.trim();
+    public List<ScriptRecordResponseDto> listByWorkId(String currentUser, String workId) {
+        scriptWorkService.requireOwnedWork(currentUser, workId);
         List<ScriptRecordDO> records = scriptRecordMapper.selectList(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .orderByDesc(ScriptRecordDO::getUpdateTime));
-        Map<String, WorkAggregate> aggregates = new LinkedHashMap<>();
-        for (ScriptRecordDO record : records) {
-            String workTitle = normalizeWorkTitle(record.getWorkTitle());
-            WorkAggregate aggregate = aggregates.computeIfAbsent(workTitle, ignored -> new WorkAggregate());
-            aggregate.chapterCount++;
-            LocalDateTime updatedAt = record.getUpdateTime();
-            if (updatedAt != null && (aggregate.lastUpdatedAt == null || updatedAt.isAfter(aggregate.lastUpdatedAt))) {
-                aggregate.lastUpdatedAt = updatedAt;
-            }
-        }
-        List<ScriptWorkSummaryDto> summaries = new ArrayList<>();
-        for (Map.Entry<String, WorkAggregate> entry : aggregates.entrySet()) {
-            summaries.add(new ScriptWorkSummaryDto(
-                    entry.getKey(),
-                    toDisplayTitle(entry.getKey()),
-                    entry.getValue().chapterCount,
-                    formatDateTime(entry.getValue().lastUpdatedAt)));
-        }
-        summaries.sort(Comparator.comparing(ScriptWorkSummaryDto::lastUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
-        return summaries;
+                .eq(ScriptRecordDO::getUserId, currentUser.trim())
+                .eq(ScriptRecordDO::getWorkId, workId.trim())
+                .orderByAsc(ScriptRecordDO::getChapterNumber));
+        return records.stream().map(this::toResponse).toList();
     }
 
     @Override
-    public void deleteWork(String currentUser, String workTitle) {
-        if (currentUser == null || currentUser.isBlank()) {
-            throw new ScriptRecordValidationException("用户未登录");
+    public List<ScriptWorkSummaryDto> listWorks(String currentUser) {
+        return scriptWorkService.listWorks(currentUser);
+    }
+
+    @Override
+    public void deleteWork(String currentUser, String workTitle, String workId) {
+        if (workId != null && !workId.isBlank()) {
+            scriptWorkService.deleteWork(currentUser, workId);
+            return;
         }
-        String userId = currentUser.trim();
-        String normalizedTitle = normalizeWorkTitle(workTitle);
-        Long count = scriptRecordMapper.selectCount(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, normalizedTitle));
-        if (count == null || count < 1) {
-            throw new ScriptRecordNotFoundException(normalizedTitle);
-        }
-        scriptRecordMapper.delete(Wrappers.lambdaQuery(ScriptRecordDO.class)
-                .eq(ScriptRecordDO::getUserId, userId)
-                .eq(ScriptRecordDO::getWorkTitle, normalizedTitle));
+        scriptWorkService.deleteWorkByTitle(currentUser, workTitle);
     }
 
     @Override
@@ -183,39 +174,30 @@ public class ScriptRecordServiceImpl implements ScriptRecordService {
         return workTitle.trim();
     }
 
-    private String normalizeModelName(String modelName) {
-        if (modelName == null || modelName.isBlank()) {
+    private String normalizeOptional(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        return modelName.trim();
+        return value.trim();
     }
 
     private ScriptRecordResponseDto toResponse(ScriptRecordDO record) {
         return new ScriptRecordResponseDto(
                 record.getId(),
+                record.getWorkId(),
                 record.getWorkTitle(),
                 record.getChapterNumber(),
                 record.getChapterContent(),
                 record.getScriptContent(),
                 record.getModelName(),
+                record.getTraceId(),
+                record.getGenerationId(),
                 formatDateTime(record.getCreateTime()),
                 formatDateTime(record.getUpdateTime()));
     }
 
     private String formatDateTime(LocalDateTime value) {
         return value == null ? null : value.toString();
-    }
-
-    private String toDisplayTitle(String workTitle) {
-        if (workTitle == null || workTitle.isBlank()) {
-            return UNTITLED_WORK_LABEL;
-        }
-        return workTitle;
-    }
-
-    private static final class WorkAggregate {
-        private int chapterCount;
-        private LocalDateTime lastUpdatedAt;
     }
 
     private String hashContent(String content) {

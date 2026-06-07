@@ -6,9 +6,18 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 public interface ScriptApplicationService {
 
-    ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser);
+    ScriptGenerateResponseDto generateScript(
+            ScriptGenerateRequestDto request,
+            String workId,
+            String generationId,
+            String currentUser);
 
     void validateGenerateRequest(ScriptGenerateRequestDto request);
 
-    void streamGenerateScript(ScriptGenerateRequestDto request, String currentUser, SseEmitter emitter);
+    void streamGenerateScript(
+            ScriptGenerateRequestDto request,
+            String workId,
+            String generationId,
+            String currentUser,
+            SseEmitter emitter);
 }
