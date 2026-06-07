@@ -152,8 +152,16 @@ function hasRefineVersions(result) {
 function toggleVersionCollapsed(chapterId, versionId) {
   const result = ensureResult(chapterId);
   const version = result.versions.find((item) => item.id === versionId);
-  if (version) {
-    version.collapsed = !version.collapsed;
+  if (!version) {
+    return;
+  }
+  const willExpand = version.collapsed;
+  if (willExpand) {
+    result.versions.forEach((item) => {
+      item.collapsed = item.id !== versionId;
+    });
+  } else {
+    version.collapsed = true;
   }
 }
 
