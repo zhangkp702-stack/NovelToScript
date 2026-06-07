@@ -101,9 +101,9 @@ function getActiveVersion(result) {
     || result.versions[result.versions.length - 1];
 }
 
-function patchActiveVersion(chapterId, patch) {
+function patchVersionById(chapterId, versionId, patch) {
   const result = ensureResult(chapterId);
-  const version = getActiveVersion(result);
+  const version = result.versions?.find((item) => item.id === versionId);
   if (!version) {
     return null;
   }
@@ -147,19 +147,6 @@ function nextRefineLabel(result) {
 
 function hasRefineVersions(result) {
   return (result?.versions || []).some((version) => version.kind === "refine");
-}
-
-function setActiveVersion(chapterId, versionId) {
-  const result = ensureResult(chapterId);
-  result.activeVersionId = versionId;
-  result.versions.forEach((version) => {
-    version.collapsed = version.id !== versionId;
-  });
-  const active = getActiveVersion(result);
-  if (active) {
-    active.collapsed = false;
-  }
-  syncResultFromActiveVersion(result);
 }
 
 function toggleVersionCollapsed(chapterId, versionId) {
@@ -1254,6 +1241,7 @@ async function onRefineChapter(index) {
     status: "streaming"
   });
   addScriptVersion(result, refineVersion);
+  const streamingVersionId = refineVersion.id;
 
   result.error = "";
   result.saved = false;
@@ -1289,25 +1277,25 @@ async function onRefineChapter(index) {
           }
         },
         onToken(token) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.content += token || "";
           });
           scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.warning = message;
           });
         },
         onDone() {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.content = sanitizeYamlDisplayText(version.content);
             version.status = "done";
           });
           result.status = "done";
         },
         onError(message) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.error = message || "改编失败";
             version.status = "error";
           });
@@ -1321,7 +1309,7 @@ async function onRefineChapter(index) {
       const message = typeof errorPayload === "object" && errorPayload?.message
         ? errorPayload.message
         : `改编失败（HTTP ${response.status}）`;
-      patchActiveVersion(chapter.id, (version) => {
+      patchVersionById(chapter.id, streamingVersionId, (version) => {
         version.status = "error";
         version.error = message;
       });
@@ -1342,7 +1330,7 @@ async function onRefineChapter(index) {
     }
   } catch (error) {
     if (error.name === "AbortError") {
-      patchActiveVersion(chapter.id, (version) => {
+      patchVersionById(chapter.id, streamingVersionId, (version) => {
         if (version.status === "streaming") {
           version.status = "cancelled";
         }
@@ -1351,7 +1339,7 @@ async function onRefineChapter(index) {
         result.status = "cancelled";
       }
     } else {
-      patchActiveVersion(chapter.id, (version) => {
+      patchVersionById(chapter.id, streamingVersionId, (version) => {
         version.status = "error";
         version.error = error.message;
       });
@@ -1399,6 +1387,7 @@ async function onGenerateChapter(index) {
   });
   result.versions = [];
   addScriptVersion(result, generateVersion);
+  const streamingVersionId = generateVersion.id;
 
   result.model = "";
   result.error = "";
@@ -1441,25 +1430,25 @@ async function onGenerateChapter(index) {
           }
         },
         onToken(token) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.content += token;
           });
           scrollResultToBottom(chapter.id);
         },
         onWarn(message) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.warning = message;
           });
         },
         onDone() {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.content = sanitizeYamlDisplayText(version.content);
             version.status = "done";
           });
           result.status = "done";
         },
         onError(message) {
-          patchActiveVersion(chapter.id, (version) => {
+          patchVersionById(chapter.id, streamingVersionId, (version) => {
             version.status = "error";
             version.error = message;
           });
@@ -1488,7 +1477,7 @@ async function onGenerateChapter(index) {
     }
   } catch (error) {
     if (error.name === "AbortError") {
-      patchActiveVersion(chapter.id, (version) => {
+      patchVersionById(chapter.id, streamingVersionId, (version) => {
         if (version.status === "streaming") {
           version.status = "cancelled";
         }
@@ -1497,7 +1486,7 @@ async function onGenerateChapter(index) {
         result.status = "cancelled";
       }
     } else {
-      patchActiveVersion(chapter.id, (version) => {
+      patchVersionById(chapter.id, streamingVersionId, (version) => {
         version.status = "error";
         version.error = error.message;
       });
@@ -1693,7 +1682,7 @@ async function onGenerateChapter(index) {
         <header class="panel-header">
           <div>
             <h2 class="panel-title">大模型结果</h2>
-            <p class="panel-subtitle">按章流式输出 YAML 剧本，支持多轮改编与版本切换</p>
+            <p class="panel-subtitle">按章流式输出 YAML 剧本，支持多轮改编与历史版本查看</p>
           </div>
         </header>
 
@@ -1772,16 +1761,6 @@ async function onGenerateChapter(index) {
                     <span v-if="version.instruction" class="version-instruction">「{{ version.instruction }}」</span>
                     <span v-if="version.content" class="version-size">{{ version.content.length }} 字</span>
                   </div>
-                  <div class="version-card-actions">
-                    <button
-                      v-if="version.id !== resultsById[chapter.id]?.activeVersionId && version.content"
-                      type="button"
-                      class="version-use-btn"
-                      @click="setActiveVersion(chapter.id, version.id)"
-                    >
-                      使用此版本
-                    </button>
-                  </div>
                 </header>
 
                 <div v-show="!version.collapsed" class="version-card-body">
@@ -1795,7 +1774,10 @@ async function onGenerateChapter(index) {
                     class="result-content"
                     :class="{ streaming: version.status === 'streaming' }"
                   >
-                    <template v-if="version.content">
+                    <template v-if="version.status === 'streaming'">
+                      <span class="yaml-stream-raw">{{ version.content }}</span><span class="stream-cursor">▋</span>
+                    </template>
+                    <template v-else-if="version.content">
                       <span
                         v-for="(line, lineIndex) in splitYamlDisplayLines(version.content)"
                         :key="lineIndex"
@@ -1812,7 +1794,6 @@ async function onGenerateChapter(index) {
                           : { paddingLeft: `${line.indentCh}ch` }"
                       >{{ line.text }}</span>
                     </template>
-                    <span v-if="version.status === 'streaming'" class="stream-cursor">▋</span>
                   </pre>
                 </div>
               </section>
@@ -1824,7 +1805,7 @@ async function onGenerateChapter(index) {
             >
               <h4 class="refine-panel-title">继续改编</h4>
               <p class="refine-panel-hint">
-                每次改编会保留旧版本并新开一个结果框；不满意时可展开旧版本并点击「使用此版本」。
+                每次改编会保留旧版本并新开一个结果框；历史版本仅可展开查看，后续改编始终基于当前最新版本。
               </p>
               <div class="refine-input-row">
                 <input
