@@ -1,5 +1,5 @@
 # NovelToScript
-
+b站链接：【七牛云-小说转剧本项目演示】 https://www.bilibili.com/video/BV1XQE869Eyo/?share_source=copy_web&vd_source=cdabafc4523a988b589bac9769b93b44
 将小说章节改编为影视剧本的 Web 应用。支持按章流式生成、多轮改编、YAML 结构化输出与作品管理。
 
 ## 功能
