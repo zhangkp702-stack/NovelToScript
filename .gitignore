@@ -32,7 +32,11 @@ build/
 ### VS Code ###
 .vscode/
 
+### Cursor ###
+.cursor/skills/
+
 ### Frontend ###
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
 frontend/*.tsbuildinfo

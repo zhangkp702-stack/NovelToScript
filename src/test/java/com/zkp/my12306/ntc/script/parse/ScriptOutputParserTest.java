@@ -15,7 +15,24 @@ class ScriptOutputParserTest {
     private final ScriptOutputParser parser = new ScriptOutputParser();
 
     @Test
-    void parse_yamlFile_returnsDocument() throws Exception {
+    void parse_naturalScript_returnsWrappedDocument() {
+        String script = """
+                剧本信息:
+                剧本标题: "雨夜归来"
+                场景列表:
+                * 场景编号: "场景一"
+                  剧本正文: |
+                  林川：（低声）我回来了。
+                """;
+
+        ScriptDocument document = parser.parse(script);
+
+        assertEquals("natural_script", document.root().path("format").asText());
+        assertTrue(document.root().path("content").asText().startsWith("剧本信息:"));
+    }
+
+    @Test
+    void parse_yamlFile_returnsStructuredDocument() throws Exception {
         String yaml = new ClassPathResource("script/sample_valid_script.yaml")
                 .getContentAsString(StandardCharsets.UTF_8);
 

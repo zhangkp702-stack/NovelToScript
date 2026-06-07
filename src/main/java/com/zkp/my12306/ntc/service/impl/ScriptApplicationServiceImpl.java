@@ -4,55 +4,162 @@ import com.zkp.my12306.ntc.dto.ScriptGenerateRequestDto;
 import com.zkp.my12306.ntc.dto.ScriptGenerateResponseDto;
 import com.zkp.my12306.ntc.llm.service.ChatResult;
 import com.zkp.my12306.ntc.llm.service.LLMService;
+import com.zkp.my12306.ntc.llm.stream.StreamCallback;
+import com.zkp.my12306.ntc.llm.stream.StreamCancellationHandle;
 import com.zkp.my12306.ntc.llm.trace.TraceRoot;
+import com.zkp.my12306.ntc.script.input.ScriptInputValidator;
+import com.zkp.my12306.ntc.script.model.ScriptDocument;
+import com.zkp.my12306.ntc.script.parse.ScriptOutputParser;
+import com.zkp.my12306.ntc.script.prompt.ScriptPromptBuilder;
+import com.zkp.my12306.ntc.script.stream.StreamDegenerationGuard;
+import com.zkp.my12306.ntc.script.validate.ScriptSchemaValidator;
 import com.zkp.my12306.ntc.service.ScriptApplicationService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class ScriptApplicationServiceImpl implements ScriptApplicationService {
-    private static final Logger log = LoggerFactory.getLogger(ScriptApplicationServiceImpl.class);
-    private static final int MIN_CHAPTERS = 3;
-    private final LLMService llmService;
 
-    public ScriptApplicationServiceImpl(LLMService llmService) {
+    private static final MediaType TEXT_PLAIN_UTF8 = new MediaType("text", "plain", StandardCharsets.UTF_8);
+
+    private final LLMService llmService;
+    private final ScriptInputValidator inputValidator;
+    private final ScriptPromptBuilder promptBuilder;
+    private final ScriptOutputParser outputParser;
+    private final ScriptSchemaValidator schemaValidator;
+
+    public ScriptApplicationServiceImpl(
+            LLMService llmService,
+            ScriptInputValidator inputValidator,
+            ScriptPromptBuilder promptBuilder,
+            ScriptOutputParser outputParser,
+            ScriptSchemaValidator schemaValidator) {
         this.llmService = llmService;
+        this.inputValidator = inputValidator;
+        this.promptBuilder = promptBuilder;
+        this.outputParser = outputParser;
+        this.schemaValidator = schemaValidator;
+    }
+
+    @Override
+    public void validateGenerateRequest(ScriptGenerateRequestDto request) {
+        validateChapterRequest(request);
     }
 
     @Override
     @TraceRoot(name = "scriptGenerate")
     public ScriptGenerateResponseDto generateScript(ScriptGenerateRequestDto request, String currentUser) {
-        validateInput(request);
-        String prompt = buildPrompt(request.title(), request.chapters());
-        log.info("开始生成剧本: user={}, chapters={}, promptLength={}",
-                currentUser, request.chapters().size(), prompt.length());
+        ChapterRequest chapterRequest = validateChapterRequest(request);
+        String prompt = promptBuilder.build(
+                chapterRequest.title(),
+                chapterRequest.chapterNumber(),
+                chapterRequest.chapterContent());
         ChatResult llmResponse = llmService.chat(prompt);
-        log.info("剧本生成完成: user={}, model={}", currentUser, llmResponse.modelName());
-        return new ScriptGenerateResponseDto(llmResponse.content(), llmResponse.modelName());
+        ScriptDocument document = outputParser.parse(llmResponse.content());
+        schemaValidator.validate(document);
+        return new ScriptGenerateResponseDto(
+                llmResponse.modelName(),
+                document.toMap(),
+                llmResponse.content());
     }
 
-    private void validateInput(ScriptGenerateRequestDto request) {
-        if (request == null || request.chapters() == null || request.chapters().size() < MIN_CHAPTERS) {
-            throw new IllegalArgumentException("至少提交3个章节内容");
+    @Override
+    @TraceRoot(name = "scriptGenerateStream")
+    public void streamGenerateScript(ScriptGenerateRequestDto request, String currentUser, SseEmitter emitter) {
+        ChapterRequest chapterRequest = validateChapterRequest(request);
+        String prompt = promptBuilder.build(
+                chapterRequest.title(),
+                chapterRequest.chapterNumber(),
+                chapterRequest.chapterContent());
+        AtomicReference<StreamCancellationHandle> handleRef = new AtomicReference<>();
+        AtomicBoolean streamFinished = new AtomicBoolean(false);
+
+        StreamCallback emitterCallback = new StreamCallback() {
+            @Override
+            public void onOpen(String modelName) {
+                sendSseEvent(emitter, "open", modelName == null ? "" : modelName);
+            }
+
+            @Override
+            public void onToken(String token) {
+                sendSseEvent(emitter, "token", token == null ? "" : token);
+            }
+
+            @Override
+            public void onComplete() {
+                if (!streamFinished.compareAndSet(false, true)) {
+                    return;
+                }
+                sendSseEvent(emitter, "done", "");
+                emitter.complete();
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                if (!streamFinished.compareAndSet(false, true)) {
+                    return;
+                }
+                sendSseEvent(emitter, "error", resolveStreamErrorMessage(throwable));
+                emitter.completeWithError(throwable);
+            }
+        };
+        StreamDegenerationGuard guardedCallback = new StreamDegenerationGuard(
+                emitterCallback,
+                () -> cancelStream(handleRef.get(), null));
+        StreamCancellationHandle handle = llmService.streamChat(prompt, guardedCallback);
+        handleRef.set(handle);
+
+        emitter.onTimeout(() -> {
+            if (streamFinished.compareAndSet(false, true)) {
+                cancelStream(handleRef.get(), emitter);
+            }
+        });
+        emitter.onCompletion(() -> {
+            if (!streamFinished.get()) {
+                cancelStream(handleRef.get(), null);
+            }
+        });
+    }
+
+    private void cancelStream(StreamCancellationHandle handle, SseEmitter emitter) {
+        if (handle != null && !handle.isCancelled()) {
+            handle.cancel();
         }
-        boolean hasBlank = request.chapters().stream().anyMatch(item -> item == null || item.isBlank());
-        if (hasBlank) {
-            throw new IllegalArgumentException("章节内容不能为空");
+        if (emitter != null) {
+            emitter.complete();
         }
     }
 
-    private String buildPrompt(String title, List<String> chapters) {
-        StringBuilder builder = new StringBuilder();
-        if (title != null && !title.isBlank()) {
-            builder.append("标题：").append(title.trim()).append("\n");
+    private void sendSseEvent(SseEmitter emitter, String eventName, String data) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(data, TEXT_PLAIN_UTF8));
+        } catch (IOException ex) {
+            emitter.completeWithError(ex);
         }
-        builder.append("请将以下小说内容转换成剧本格式：\n");
-        for (int i = 0; i < chapters.size(); i++) {
-            builder.append("第").append(i + 1).append("章：\n").append(chapters.get(i)).append("\n");
+    }
+
+    private String resolveStreamErrorMessage(Throwable throwable) {
+        Throwable root = throwable;
+        while (root.getCause() != null) {
+            root = root.getCause();
         }
-        return builder.toString();
+        String message = root.getMessage();
+        return message == null || message.isBlank() ? "生成失败，请稍后重试" : message;
+    }
+
+    private ChapterRequest validateChapterRequest(ScriptGenerateRequestDto request) {
+        int chapterNumber = request == null || request.chapterNumber() == null ? 1 : request.chapterNumber();
+        String content = request == null || request.chapterContent() == null ? "" : request.chapterContent().trim();
+        inputValidator.validate(chapterNumber, content);
+        return new ChapterRequest(request == null ? null : request.title(), chapterNumber, content);
+    }
+
+    private record ChapterRequest(String title, int chapterNumber, String chapterContent) {
     }
 }

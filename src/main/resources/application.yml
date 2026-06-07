@@ -1,6 +1,15 @@
+server:
+  servlet:
+    encoding:
+      enabled: true
+      force: true
+
 spring:
   application:
     name: test
+  mvc:
+    async:
+      request-timeout: 300000
   datasource:
     url: jdbc:mysql://192.168.126.100:3306/NTS_user?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
@@ -11,6 +20,9 @@ spring:
       host: 192.168.126.100
       port: 6379
       password: 123456
+  servlet:
+    encoding:
+      charset: UTF-8
 
 auth:
   session:
@@ -46,9 +58,15 @@ ai:
   selection:
     failure-threshold: 2
     open-duration-ms: 30000
-    first-token-timeout-ms: 8000
+    # DeepSeek 等大模型首 token 常超过 8s，过短会误判超时
+    first-token-timeout-ms: 60000
     connect-timeout-ms: 10000
-    request-timeout-ms: 120000
+    request-timeout-ms: 300000
+  generation:
+    max-tokens: 8192
+    temperature: 0.3
+    frequency-penalty: 0.25
+    presence-penalty: 0.1
   stream-executor:
     core-size: 4
     max-size: 16
@@ -62,28 +80,34 @@ ai:
     candidates:
       - id: siliconflow-primary
         provider: siliconflow
-        model: Qwen/Qwen2.5-7B-Instruct
+        # 须与 SiliconFlow 控制台模型 ID 完全一致，见 https://cloud.siliconflow.cn/models
+        model: deepseek-ai/DeepSeek-V4-Pro
         priority: 1
+        enabled: true
+      - id: siliconflow-qwen-backup
+        provider: siliconflow
+        model: Qwen/Qwen2.5-14B-Instruct
+        priority: 2
         enabled: true
       - id: deepseek-backup
         provider: deepseek
         model: deepseek-chat
-        priority: 2
+        priority: 3
         enabled: false
       - id: ollama-local
         provider: ollama
         model: "qwen2.5:7b"
-        priority: 3
+        priority: 4
         enabled: false
       - id: openai-gpt4o-mini
         provider: openai
         model: gpt-4o-mini
-        priority: 4
+        priority: 5
         enabled: false
       - id: bailian-qwen-plus
         provider: bailian
         model: qwen-plus-latest
-        priority: 5
+        priority: 6
         enabled: false
 
 llm:

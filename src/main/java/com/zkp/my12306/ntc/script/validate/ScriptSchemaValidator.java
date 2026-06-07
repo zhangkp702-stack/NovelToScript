@@ -10,14 +10,41 @@ import java.util.List;
 @Component
 public class ScriptSchemaValidator {
 
+    private static final String NATURAL_SCRIPT_FORMAT = "natural_script";
+
     public void validate(ScriptDocument document) {
-        List<String> errors = collectErrors(document.root());
+        JsonNode root = document.root();
+        if (isNaturalScript(root)) {
+            validateNaturalScript(root);
+            return;
+        }
+        List<String> errors = collectStructuredErrors(root);
         if (!errors.isEmpty()) {
             throw new ScriptSchemaValidationException(String.join("; ", errors));
         }
     }
 
-    List<String> collectErrors(JsonNode root) {
+    private boolean isNaturalScript(JsonNode root) {
+        return root != null
+                && root.isObject()
+                && NATURAL_SCRIPT_FORMAT.equals(root.path("format").asText());
+    }
+
+    private void validateNaturalScript(JsonNode root) {
+        String content = root.path("content").asText("");
+        if (content.isBlank()) {
+            throw new ScriptSchemaValidationException("剧本内容为空");
+        }
+        String normalized = content.stripLeading();
+        if (!normalized.startsWith("剧本信息:") && !normalized.startsWith("剧本信息：")) {
+            throw new ScriptSchemaValidationException("剧本必须以「剧本信息:」开头");
+        }
+        if (!content.contains("场景列表:") && !content.contains("场景列表：")) {
+            throw new ScriptSchemaValidationException("剧本缺少「场景列表」部分");
+        }
+    }
+
+    List<String> collectStructuredErrors(JsonNode root) {
         List<String> errors = new ArrayList<>();
         if (root == null || !root.isObject()) {
             errors.add("根节点必须是对象");

@@ -29,8 +29,8 @@ class AIModelPropertiesBindingTest {
                 aiModelProperties.getProviders().get("bailian").getEndpoints().get("chat"));
 
         assertNotNull(aiModelProperties.getChat());
-        assertEquals("ollama-local", aiModelProperties.getChat().getDefaultModel());
-        assertEquals(5, aiModelProperties.getChat().getCandidates().size());
+        assertEquals("siliconflow-primary", aiModelProperties.getChat().getDefaultModel());
+        assertEquals(6, aiModelProperties.getChat().getCandidates().size());
 
         AIModelProperties.ModelCandidate ollama = aiModelProperties.getChat().getCandidates().stream()
                 .filter(candidate -> "ollama-local".equals(candidate.getId()))
@@ -38,7 +38,13 @@ class AIModelPropertiesBindingTest {
                 .orElseThrow();
         assertEquals("ollama", ollama.getProvider());
         assertEquals("qwen2.5:7b", ollama.getModel());
-        assertTrue(ollama.getEnabled());
+        assertFalse(ollama.getEnabled());
+
+        AIModelProperties.ModelCandidate siliconflow = aiModelProperties.getChat().getCandidates().stream()
+                .filter(candidate -> "siliconflow-primary".equals(candidate.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(siliconflow.getEnabled());
 
         AIModelProperties.ModelCandidate openai = aiModelProperties.getChat().getCandidates().stream()
                 .filter(candidate -> "openai-gpt4o-mini".equals(candidate.getId()))
@@ -56,9 +62,13 @@ class AIModelPropertiesBindingTest {
 
         assertEquals(2, aiModelProperties.getSelection().getFailureThreshold());
         assertEquals(30000L, aiModelProperties.getSelection().getOpenDurationMs());
-        assertEquals(8000, aiModelProperties.getSelection().getFirstTokenTimeoutMs());
+        assertEquals(60000, aiModelProperties.getSelection().getFirstTokenTimeoutMs());
         assertEquals(10000, aiModelProperties.getSelection().getConnectTimeoutMs());
-        assertEquals(120000, aiModelProperties.getSelection().getRequestTimeoutMs());
+        assertEquals(300000, aiModelProperties.getSelection().getRequestTimeoutMs());
+        assertEquals(8192, aiModelProperties.getGeneration().getMaxTokens());
+        assertEquals(0.3, aiModelProperties.getGeneration().getTemperature());
+        assertEquals(0.25, aiModelProperties.getGeneration().getFrequencyPenalty());
+        assertEquals(0.1, aiModelProperties.getGeneration().getPresencePenalty());
         assertEquals(4, aiModelProperties.getStreamExecutor().getCoreSize());
     }
 }

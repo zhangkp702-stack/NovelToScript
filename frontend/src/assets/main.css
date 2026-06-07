@@ -127,8 +127,131 @@ button:disabled {
   text-decoration: underline;
 }
 
-.workbench-card {
-  max-width: 720px;
+.workbench-page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.workbench-header {
+  max-width: 1200px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.workbench-notice {
+  max-width: 1200px;
+  margin: 0 auto 12px;
+}
+
+.workbench-layout {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  height: calc(100vh - 140px);
+  min-height: 480px;
+}
+
+.workbench-panel {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workbench-panel h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.input-panel {
+  overflow-y: auto;
+}
+
+.chapter-generate-btn {
+  margin-top: 8px;
+  width: 100%;
+  background: #111827;
+  color: #fff;
+}
+
+.chapter-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chapter-result-item {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chapter-result-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.output-panel .chapter-result-item .result-content {
+  min-height: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.result-content.empty {
+  color: #9ca3af;
+}
+
+.stream-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #2563eb;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .workbench-header {
+    flex-direction: column;
+  }
+
+  .workbench-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+
+  .workbench-panel {
+    min-height: 0;
+    max-height: none;
+  }
+
+  .output-panel {
+    height: 50vh;
+    min-height: 320px;
+  }
 }
 
 .chapter-list {
@@ -155,17 +278,6 @@ button:disabled {
   font-size: 13px;
   background: #e5e7eb;
   color: #111827;
-}
-
-.result-panel {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
-}
-
-.result-panel h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
 }
 
 .result-meta {
